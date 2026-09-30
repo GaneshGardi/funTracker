@@ -15,42 +15,18 @@ import { router } from 'expo-router';
 
 import { supabase } from '../lib/supabase';
 
-export default function SignupScreen() {
+export default function LoginScreen() {
   const [email, setEmail] = useState('');
-  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSignup = async () => {
+  const handleLogin = async () => {
     const cleanEmail = email.trim().toLowerCase();
-    const cleanUsername = username.trim().toLowerCase();
 
-    if (!cleanEmail || !cleanUsername || !password || !confirmPassword) {
-      Alert.alert('Missing information', 'Please fill in all fields.');
-      return;
-    }
-
-    if (cleanUsername.length < 3) {
+    if (!cleanEmail || !password) {
       Alert.alert(
-        'Invalid username',
-        'Username must be at least 3 characters.'
-      );
-      return;
-    }
-
-    if (password.length < 6) {
-      Alert.alert(
-        'Invalid password',
-        'Password must be at least 6 characters.'
-      );
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      Alert.alert(
-        'Passwords do not match',
-        'Please make sure both passwords are the same.'
+        'Missing information',
+        'Please enter your email and password.'
       );
       return;
     }
@@ -58,43 +34,31 @@ export default function SignupScreen() {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email: cleanEmail,
-        password,
-        options: {
-            data: {
-                username: cleanUsername,
-            },
-        },
-      });
+      const { data, error } =
+        await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        });
 
       if (error) {
-        Alert.alert('Signup failed', error.message);
+        Alert.alert('Login failed', error.message);
         return;
       }
 
-      console.log('SIGNUP SESSION:', data.session);
-      console.log('SIGNUP USER:', data.user);
-      if (!data.user) {
+      console.log('LOGIN USER:', data.user);
+      console.log('LOGIN SESSION:', data.session);
+
+      if (!data.session) {
         Alert.alert(
-          'Signup failed',
-          'The account could not be created.'
+          'Login failed',
+          'Login succeeded but no session was created.'
         );
         return;
       }
 
-      Alert.alert(
-        'Account created',
-        `Welcome, ${cleanUsername}!`,
-        [
-          {
-            text: 'Continue',
-            onPress: () => router.replace('/'),
-          },
-        ]
-      );
+      router.replace('/calorie-goal');
     } catch (error) {
-      console.error('Signup error:', error);
+      console.error('Login error:', error);
 
       Alert.alert(
         'Something went wrong',
@@ -115,10 +79,10 @@ export default function SignupScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Create your account</Text>
+          <Text style={styles.title}>Welcome back</Text>
 
           <Text style={styles.subtitle}>
-            Start tracking your calories with FunTracker.
+            Log in to continue tracking your progress.
           </Text>
         </View>
 
@@ -137,45 +101,14 @@ export default function SignupScreen() {
             editable={!loading}
           />
 
-          <Text style={styles.label}>Username</Text>
-
-          <TextInput
-            style={styles.input}
-            placeholder="Choose a username"
-            placeholderTextColor="#888"
-            value={username}
-            onChangeText={setUsername}
-            autoCapitalize="none"
-            autoCorrect={false}
-            editable={!loading}
-          />
-
-          <Text style={styles.helper}>
-            This is the name your friends will see.
-          </Text>
-
           <Text style={styles.label}>Password</Text>
 
           <TextInput
             style={styles.input}
-            placeholder="Create a password"
+            placeholder="Enter your password"
             placeholderTextColor="#888"
             value={password}
             onChangeText={setPassword}
-            secureTextEntry
-            autoCapitalize="none"
-            autoCorrect={false}
-            editable={!loading}
-          />
-
-          <Text style={styles.label}>Confirm password</Text>
-
-          <TextInput
-            style={styles.input}
-            placeholder="Enter password again"
-            placeholderTextColor="#888"
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
             secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
@@ -188,22 +121,22 @@ export default function SignupScreen() {
               pressed && styles.buttonPressed,
               loading && styles.buttonDisabled,
             ]}
-            onPress={handleSignup}
+            onPress={handleLogin}
             disabled={loading}
           >
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.buttonText}>Create account</Text>
+              <Text style={styles.buttonText}>Log in</Text>
             )}
           </Pressable>
 
           <Pressable
-            onPress={() => router.back()}
+            onPress={() => router.push('/signup')}
             disabled={loading}
           >
-            <Text style={styles.loginText}>
-              Already have an account? Log in
+            <Text style={styles.signupText}>
+              Don't have an account? Create one
             </Text>
           </Pressable>
         </View>
@@ -265,12 +198,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fafafa',
   },
 
-  helper: {
-    marginTop: 6,
-    fontSize: 13,
-    color: '#777',
-  },
-
   button: {
     height: 52,
     marginTop: 30,
@@ -294,7 +221,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  loginText: {
+  signupText: {
     marginTop: 22,
     textAlign: 'center',
     fontSize: 15,
