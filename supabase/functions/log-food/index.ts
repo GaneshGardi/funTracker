@@ -31,6 +31,25 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Get the user's JWT.
+    const authHeader =
+      req.headers.get('Authorization');
+
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({
+          error: 'Authorization required',
+        }),
+        {
+          status: 401,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+    }
+
     const body = await req.json();
 
     const foodId = body?.food_id;
@@ -76,16 +95,16 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Get Supabase environment variables
+    // Supabase environment variables
     const supabaseUrl =
       Deno.env.get('SUPABASE_URL');
 
-    const serviceRoleKey =
+    const supabaseAnonKey =
       Deno.env.get(
-        'SUPABASE_SERVICE_ROLE_KEY'
+        'SUPABASE_ANON_KEY'
       );
 
-    if (!supabaseUrl || !serviceRoleKey) {
+    if (!supabaseUrl || !supabaseAnonKey) {
       console.error(
         'Supabase environment variables are missing'
       );
@@ -106,8 +125,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Create Supabase client using the
-    // service role key.
+    // Create a Supabase client using the
+    // user's JWT.
     const { createClient } =
       await import(
         'npm:@supabase/supabase-js@2'
@@ -115,11 +134,46 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(
       supabaseUrl,
-      serviceRoleKey
+      supabaseAnonKey,
+      {
+        global: {
+          headers: {
+            Authorization: authHeader,
+          },
+        },
+      }
     );
 
-    // Retrieve the trusted nutrition reference
-    // from the foods table.
+    // Verify the authenticated user.
+    const {
+      data: {
+        user,
+      },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      console.error(
+        'Authentication failed:',
+        userError
+      );
+
+      return new Response(
+        JSON.stringify({
+          error: 'Invalid authentication',
+        }),
+        {
+          status: 401,
+          headers: {
+            ...corsHeaders,
+            'Content-Type':
+              'application/json',
+          },
+        }
+      );
+    }
+
+    // Get the trusted food reference.
     const {
       data: food,
       error: foodError,
@@ -129,8 +183,6 @@ Deno.serve(async (req) => {
         `
         id,
         name,
-        serving_size,
-        serving_unit,
         calories,
         protein,
         carbs,
@@ -164,85 +216,111 @@ Deno.serve(async (req) => {
       );
     }
 
-    // FunTracker standard:
+    // FunTracker nutrition standard:
     //
-    // foods.calories
-    // foods.protein
-    // foods.carbs
-    // foods.fat
-    // foods.fiber
+    // All values in foods are PER 100 G.
     //
-    // are ALWAYS per 100 g.
-    //
-    // The serving_size and serving_unit columns
-    // are NOT used in this calculation.
+    // serving_size and serving_unit are not
+    // used for this calculation.
 
     const multiplier =
       quantityG / 100;
 
     const calculate = (
-      value: number | null
-    ): number | null => {
-      if (
-        value === null ||
-        !Number.isFinite(value)
-      ) {
-        return null;
-      }
-
+      value: number
+    ): number => {
       return Number(
-        (value * multiplier).toFixed(2)
+        (Number(value) * multiplier).toFixed(2)
       );
     };
 
     const nutrition = {
       calories: calculate(
-        Number(food.calories)
+        food.calories
       ),
       protein: calculate(
-        Number(food.protein)
+        food.protein
       ),
       carbs: calculate(
-        Number(food.carbs)
+        food.carbs
       ),
       fat: calculate(
-        Number(food.fat)
+        food.fat
       ),
       fiber: calculate(
-        Number(food.fiber)
+        food.fiber
       ),
     };
 
+    // Use the user's local calendar date.
+    //
+    // The client can optionally provide log_date.
+    // If not provided, we use the server date.
+    const logDate =
+      typeof body?.log_date === 'string' &&
+      /^\d{4}-\d{2}-\d{2}$/.test(
+        body.log_date
+      )
+        ? body.log_date
+        : new Date()
+            .toISOString()
+            .slice(0, 10);
+
+    // Insert the calculated snapshot.
+    //
+    // RLS enforces:
+    // auth.uid() = user_id
+    const {
+      data: foodLog,
+      error: insertError,
+    } = await supabase
+      .from('food_logs')
+      .insert({
+        user_id: user.id,
+        food_id: food.id,
+        food_name: food.name,
+        quantity: quantityG,
+        unit: 'g',
+        calories: nutrition.calories,
+        protein: nutrition.protein,
+        carbs: nutrition.carbs,
+        fat: nutrition.fat,
+        fiber: nutrition.fiber,
+        log_date: logDate,
+        source: 'manual',
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error(
+        'Failed to create food log:',
+        insertError
+      );
+
+      return new Response(
+        JSON.stringify({
+          error:
+            'Failed to save food log',
+        }),
+        {
+          status: 500,
+          headers: {
+            ...corsHeaders,
+            'Content-Type':
+              'application/json',
+          },
+        }
+      );
+    }
+
     return new Response(
       JSON.stringify({
-        food: {
-          id: food.id,
-          name: food.name,
-          source: food.source,
-        },
-
-        quantity_g: quantityG,
-
-        basis:
-          'calculated_from_per_100g',
-
-        nutrition_per_100g: {
-          calories:
-            Number(food.calories),
-          protein:
-            Number(food.protein),
-          carbs:
-            Number(food.carbs),
-          fat:
-            Number(food.fat),
-          fiber:
-            Number(food.fiber),
-        },
-
-        nutrition,
+        success: true,
+        foodLog,
       }),
       {
-        status: 200,
+        status: 201,
         headers: {
           ...corsHeaders,
           'Content-Type':
@@ -252,7 +330,7 @@ Deno.serve(async (req) => {
     );
   } catch (error) {
     console.error(
-      'calculate-food error:',
+      'log-food error:',
       error
     );
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -7,7 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 
 import {
   getCurrentUser,
@@ -16,17 +16,37 @@ import {
 
 import { supabase } from '../lib/supabase';
 
+type DashboardNutrition = {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber: number;
+};
+
 export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
-  const [dailyCalories, setDailyCalories] = useState<number | null>(
-    null
+  const [dailyCalories, setDailyCalories] =
+    useState<number | null>(null);
+
+  const [nutrition, setNutrition] =
+    useState<DashboardNutrition>({
+      calories: 0,
+      protein: 0,
+      carbs: 0,
+      fat: 0,
+      fiber: 0,
+    });
+
+  useFocusEffect(
+    useCallback(() => {
+      loadDashboard();
+    }, [])
   );
 
-  useEffect(() => {
-    loadDashboard();
-  }, []);
-
   const loadDashboard = async () => {
+    setLoading(true);
+
     const user = await getCurrentUser();
 
     if (!user) {
@@ -37,27 +57,103 @@ export default function HomeScreen() {
     const complete = await isProfileComplete(user.id);
 
     if (!complete) {
+      setLoading(false);
       router.replace('/onboarding');
       return;
     }
 
-    const { data, error } = await supabase
-      .from('calorie_goals')
-      .select('daily_calories')
-      .eq('user_id', user.id)
-      .order('effective_at', {
-        ascending: false,
-      })
-      .limit(1)
-      .maybeSingle();
+    // Load latest calorie goal
+    const { data: goalData, error: goalError } =
+      await supabase
+        .from('calorie_goals')
+        .select('daily_calories')
+        .eq('user_id', user.id)
+        .order('effective_at', {
+          ascending: false,
+        })
+        .limit(1)
+        .maybeSingle();
 
-    if (error) {
+    if (goalError) {
       console.error(
         'Failed to load calorie goal:',
-        error
+        goalError
       );
-    } else if (data) {
-      setDailyCalories(Number(data.daily_calories));
+    } else if (goalData) {
+      setDailyCalories(
+        Number(goalData.daily_calories)
+      );
+    }
+
+    // Get today's date in local time
+    const now = new Date();
+
+    const year = now.getFullYear();
+    const month = String(
+      now.getMonth() + 1
+    ).padStart(2, '0');
+    const day = String(
+      now.getDate()
+    ).padStart(2, '0');
+
+    const today = `${year}-${month}-${day}`;
+
+    // Load today's food logs
+    const { data: foodLogs, error: foodLogsError } =
+      await supabase
+        .from('food_logs')
+        .select(
+          'calories, protein, carbs, fat, fiber'
+        )
+        .eq('user_id', user.id)
+        .eq('log_date', today);
+
+    if (foodLogsError) {
+      console.error(
+        'Failed to load food logs:',
+        foodLogsError
+      );
+
+      setNutrition({
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fat: 0,
+        fiber: 0,
+      });
+    } else {
+      const totals = (foodLogs ?? []).reduce(
+        (sum, food) => ({
+          calories:
+            sum.calories +
+            Number(food.calories ?? 0),
+
+          protein:
+            sum.protein +
+            Number(food.protein ?? 0),
+
+          carbs:
+            sum.carbs +
+            Number(food.carbs ?? 0),
+
+          fat:
+            sum.fat +
+            Number(food.fat ?? 0),
+
+          fiber:
+            sum.fiber +
+            Number(food.fiber ?? 0),
+        }),
+        {
+          calories: 0,
+          protein: 0,
+          carbs: 0,
+          fat: 0,
+          fiber: 0,
+        }
+      );
+
+      setNutrition(totals);
     }
 
     setLoading(false);
@@ -71,11 +167,16 @@ export default function HomeScreen() {
     );
   }
 
-  const caloriesConsumed = 0;
+  const caloriesConsumed = Math.round(
+    nutrition.calories
+  );
 
   const caloriesRemaining =
     dailyCalories !== null
-      ? Math.max(dailyCalories - caloriesConsumed, 0)
+      ? Math.max(
+          dailyCalories - caloriesConsumed,
+          0
+        )
       : 0;
 
   const progress =
@@ -171,25 +272,25 @@ export default function HomeScreen() {
         <View style={styles.macroGrid}>
           <MacroCard
             label="Protein"
-            value={0}
+            value={nutrition.protein}
             unit="g"
           />
 
           <MacroCard
             label="Carbs"
-            value={0}
+            value={nutrition.carbs}
             unit="g"
           />
 
           <MacroCard
             label="Fat"
-            value={0}
+            value={nutrition.fat}
             unit="g"
           />
 
           <MacroCard
             label="Fiber"
-            value={0}
+            value={nutrition.fiber}
             unit="g"
           />
         </View>
@@ -197,7 +298,9 @@ export default function HomeScreen() {
         {/* Add Food */}
         <Pressable
           style={styles.addFoodButton}
-          onPress={() => {}}
+          onPress={() =>
+            router.push('/add-food')
+          }
         >
           <Text style={styles.addFoodIcon}>
             +
@@ -236,7 +339,7 @@ function MacroCard({
       </Text>
 
       <Text style={styles.macroValue}>
-        {value}
+        {Number(value).toFixed(1)}
         <Text style={styles.macroUnit}>
           {' '}
           {unit}
