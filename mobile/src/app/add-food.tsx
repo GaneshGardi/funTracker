@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -59,9 +59,6 @@ export default function AddFoodScreen() {
   const [selectedFood, setSelectedFood] =
     useState<SelectedFood | null>(null);
 
-    useEffect(() => {
-  console.log('SELECTED FOOD STATE:', selectedFood);
-}, [selectedFood]);
 
   const [calculation, setCalculation] =
     useState<CalculationResult | null>(null);
