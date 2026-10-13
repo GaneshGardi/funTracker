@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -10,14 +10,14 @@ import {
   Text,
   TextInput,
   View,
-} from 'react-native';
-import { router } from 'expo-router';
+} from "react-native";
+import { router } from "expo-router";
 
-import { supabase } from '../lib/supabase';
+import { supabase } from "../lib/supabase";
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
@@ -25,8 +25,8 @@ export default function LoginScreen() {
 
     if (!cleanEmail || !password) {
       Alert.alert(
-        'Missing information',
-        'Please enter your email and password.'
+        "Missing information",
+        "Please enter your email and password.",
       );
       return;
     }
@@ -34,36 +34,53 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      const { data, error } =
-        await supabase.auth.signInWithPassword({
-          email: cleanEmail,
-          password,
-        });
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
+      });
 
       if (error) {
-        Alert.alert('Login failed', error.message);
+        Alert.alert("Login failed", error.message);
         return;
       }
 
-      console.log('LOGIN USER:', data.user);
-      console.log('LOGIN SESSION:', data.session);
+      console.log("LOGIN USER:", data.user);
+      console.log("LOGIN SESSION:", data.session);
 
       if (!data.session) {
         Alert.alert(
-          'Login failed',
-          'Login succeeded but no session was created.'
+          "Login failed",
+          "Login succeeded but no session was created.",
         );
         return;
       }
 
-      router.replace('/calorie-goal');
-    } catch (error) {
-      console.error('Login error:', error);
+      const { data: existingGoal, error: goalError } = await supabase
+        .from("calorie_goals")
+        .select("daily_calories")
+        .eq("user_id", data.user.id)
+        .order("effective_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      Alert.alert(
-        'Something went wrong',
-        'Please try again.'
-      );
+      if (goalError) {
+        console.error("Failed to check existing calorie goal:", goalError);
+        Alert.alert(
+          "Could not load calorie goal",
+          "Please try logging in again.",
+        );
+        return;
+      }
+
+      if (existingGoal) {
+        router.replace("/");
+      } else {
+        router.replace("/calorie-goal");
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+
+      Alert.alert("Something went wrong", "Please try again.");
     } finally {
       setLoading(false);
     }
@@ -72,7 +89,7 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ScrollView
         contentContainerStyle={styles.content}
@@ -131,10 +148,7 @@ export default function LoginScreen() {
             )}
           </Pressable>
 
-          <Pressable
-            onPress={() => router.push('/signup')}
-            disabled={loading}
-          >
+          <Pressable onPress={() => router.push("/signup")} disabled={loading}>
             <Text style={styles.signupText}>
               Don't have an account? Create one
             </Text>
@@ -148,12 +162,12 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
   },
 
   content: {
     flexGrow: 1,
-    justifyContent: 'center',
+    justifyContent: "center",
     paddingHorizontal: 24,
     paddingVertical: 40,
   },
@@ -164,47 +178,47 @@ const styles = StyleSheet.create({
 
   title: {
     fontSize: 30,
-    fontWeight: '700',
-    color: '#111',
+    fontWeight: "700",
+    color: "#111",
   },
 
   subtitle: {
     marginTop: 8,
     fontSize: 16,
     lineHeight: 23,
-    color: '#666',
+    color: "#666",
   },
 
   form: {
-    width: '100%',
+    width: "100%",
   },
 
   label: {
     marginBottom: 8,
     marginTop: 18,
     fontSize: 15,
-    fontWeight: '600',
-    color: '#222',
+    fontWeight: "600",
+    color: "#222",
   },
 
   input: {
     height: 52,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: "#ddd",
     borderRadius: 12,
     paddingHorizontal: 16,
     fontSize: 16,
-    color: '#111',
-    backgroundColor: '#fafafa',
+    color: "#111",
+    backgroundColor: "#fafafa",
   },
 
   button: {
     height: 52,
     marginTop: 30,
     borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#111',
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#111",
   },
 
   buttonPressed: {
@@ -216,15 +230,15 @@ const styles = StyleSheet.create({
   },
 
   buttonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: "700",
   },
 
   signupText: {
     marginTop: 22,
-    textAlign: 'center',
+    textAlign: "center",
     fontSize: 15,
-    color: '#333',
+    color: "#333",
   },
 });

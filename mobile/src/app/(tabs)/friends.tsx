@@ -1,3 +1,4 @@
+
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
@@ -23,17 +24,29 @@ type Group = {
   created_at: string;
 };
 
+type Invitation = {
+  invitation_id: string;
+  group_id: string;
+  group_name: string;
+  inviter_user_id: string;
+  inviter_username: string;
+  inviter_display_name: string | null;
+  invitation_created_at: string;
+};
+
 export default function FriendsScreen() {
   const [groups, setGroups] = useState<Group[]>([]);
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [respondingTo, setRespondingTo] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [groupName, setGroupName] = useState("");
   const [creating, setCreating] = useState(false);
 
   const router = useRouter();
 
-  const loadGroups = useCallback(async (showLoader = true) => {
+  const loadData = useCallback(async (showLoader = true) => {
     if (showLoader) setLoading(true);
 
     try {
@@ -46,38 +59,42 @@ export default function FriendsScreen() {
 
       if (!user) {
         setGroups([]);
+        setInvitations([]);
         return;
       }
 
-      const { data: memberships, error: membershipError } = await supabase
-        .from("group_members")
-        .select("group_id")
-        .eq("user_id", user.id);
+      const [membershipResult, invitationResult] = await Promise.all([
+        supabase
+          .from("group_members")
+          .select("group_id")
+          .eq("user_id", user.id),
+        supabase.rpc("get_pending_group_invitations"),
+      ]);
 
-      if (membershipError) throw membershipError;
+      if (membershipResult.error) throw membershipResult.error;
+      if (invitationResult.error) throw invitationResult.error;
 
-      const groupIds = (memberships ?? []).map(
+      const groupIds = (membershipResult.data ?? []).map(
         (membership) => membership.group_id,
       );
 
-      if (groupIds.length === 0) {
-        setGroups([]);
-        return;
-      }
+      const groupsResult =
+        groupIds.length > 0
+          ? await supabase
+              .from("groups")
+              .select("id, name, created_by, created_at")
+              .in("id", groupIds)
+              .order("created_at", { ascending: false })
+          : { data: [], error: null };
 
-      const { data, error } = await supabase
-        .from("groups")
-        .select("id, name, created_by, created_at")
-        .in("id", groupIds)
-        .order("created_at", { ascending: false });
+      if (groupsResult.error) throw groupsResult.error;
 
-      if (error) throw error;
-
-      setGroups(data ?? []);
+      setGroups(groupsResult.data ?? []);
+      setInvitations(invitationResult.data ?? []);
     } catch (error) {
-      console.error("Error loading groups:", error);
+      console.error("Error loading Friends screen:", error);
       Alert.alert(
-        "Could not load groups",
+        "Could not load Friends",
         error instanceof Error ? error.message : "Please try again.",
       );
     } finally {
@@ -88,8 +105,8 @@ export default function FriendsScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      void loadGroups();
-    }, [loadGroups]),
+      void loadData();
+    }, [loadData]),
   );
 
   const handleCreateGroup = async () => {
@@ -118,7 +135,7 @@ export default function FriendsScreen() {
       setGroupName("");
       setModalVisible(false);
 
-      await loadGroups();
+      await loadData();
 
       Alert.alert("Group created!", `${name} is ready.`);
     } catch (error) {
@@ -132,9 +149,101 @@ export default function FriendsScreen() {
     }
   };
 
+  const handleInvitationResponse = async (
+    invitation: Invitation,
+    response: "accepted" | "declined",
+  ) => {
+    setRespondingTo(invitation.invitation_id);
+
+    try {
+      const { error } = await supabase.rpc("respond_to_group_invitation", {
+        p_invitation_id: invitation.invitation_id,
+        p_response: response,
+      });
+
+      if (error) throw error;
+
+      await loadData(false);
+
+      Alert.alert(
+        response === "accepted" ? "Invitation accepted!" : "Invitation declined",
+        response === "accepted"
+          ? `You have joined ${invitation.group_name}.`
+          : `You declined the invitation to ${invitation.group_name}.`,
+      );
+    } catch (error) {
+      console.error("Error responding to invitation:", error);
+      Alert.alert(
+        "Could not update invitation",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    } finally {
+      setRespondingTo(null);
+    }
+  };
+
   const handleRefresh = () => {
     setRefreshing(true);
-    void loadGroups(false);
+    void loadData(false);
+  };
+
+  const renderInvitation = ({ item }: { item: Invitation }) => {
+    const inviter =
+      item.inviter_display_name?.trim() || item.inviter_username;
+
+    const isResponding = respondingTo === item.invitation_id;
+
+    return (
+      <View style={styles.invitationCard}>
+        <View style={styles.invitationTop}>
+          <View style={styles.invitationIcon}>
+            <Text style={styles.invitationIconText}>✉</Text>
+          </View>
+
+          <View style={styles.invitationInfo}>
+            <Text style={styles.invitationGroupName}>{item.group_name}</Text>
+            <Text style={styles.invitationDescription}>
+              Invited by {inviter.startsWith("@") ? inviter : `@${inviter}`}
+            </Text>
+            <Text style={styles.invitationDate}>
+              {new Date(item.invitation_created_at).toLocaleDateString()}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.invitationActions}>
+          <Pressable
+            style={[
+              styles.acceptButton,
+              isResponding && styles.disabledButton,
+            ]}
+            onPress={() => void handleInvitationResponse(item, "accepted")}
+            disabled={respondingTo !== null}
+            accessibilityRole="button"
+            accessibilityLabel={`Accept invitation to ${item.group_name}`}
+          >
+            {isResponding ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.acceptButtonText}>Accept</Text>
+            )}
+          </Pressable>
+
+          <Pressable
+            style={[
+              styles.declineButton,
+              respondingTo !== null && styles.disabledButton,
+            ]}
+            onPress={() => void handleInvitationResponse(item, "declined")}
+            disabled={respondingTo !== null}
+            accessibilityRole="button"
+            accessibilityLabel={`Decline invitation to ${item.group_name}`}
+          >
+            <Text style={styles.declineButtonText}>Decline</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
   };
 
   const renderGroup = ({ item }: { item: Group }) => (
@@ -182,30 +291,55 @@ export default function FriendsScreen() {
         </Pressable>
       </View>
 
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Your groups</Text>
-        <Text style={styles.groupCount}>{groups.length}</Text>
-      </View>
-
       {loading ? (
         <View style={styles.centerContent}>
           <ActivityIndicator size="large" color="#2563EB" />
-          <Text style={styles.loadingText}>Loading your groups...</Text>
+          <Text style={styles.loadingText}>Loading Friends...</Text>
         </View>
       ) : (
         <FlatList
           data={groups}
           keyExtractor={(item) => item.id}
           renderItem={renderGroup}
-          contentContainerStyle={
-            groups.length === 0 ? styles.emptyList : styles.groupList
-          }
+          contentContainerStyle={styles.screenList}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
               onRefresh={handleRefresh}
               tintColor="#2563EB"
             />
+          }
+          ListHeaderComponent={
+            <View>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>
+                  Incoming invitations
+                </Text>
+                <Text style={styles.groupCount}>{invitations.length}</Text>
+              </View>
+
+              {invitations.length === 0 ? (
+                <View style={styles.noInvitations}>
+                  <Text style={styles.noInvitationsText}>
+                    No pending invitations. When a friend invites you to a
+                    group, it will appear here.
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.invitationList}>
+                  {invitations.map((invitation) => (
+                    <View key={invitation.invitation_id}>
+                      {renderInvitation({ item: invitation })}
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              <View style={[styles.sectionHeader, styles.groupsHeader]}>
+                <Text style={styles.sectionTitle}>Your groups</Text>
+                <Text style={styles.groupCount}>{groups.length}</Text>
+              </View>
+            </View>
           }
           ListEmptyComponent={
             <View style={styles.emptyState}>
@@ -314,7 +448,7 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 22,
-    paddingBottom: 28,
+    paddingBottom: 24,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -347,7 +481,7 @@ const styles = StyleSheet.create({
   },
   sectionHeader: {
     paddingHorizontal: 22,
-    marginBottom: 14,
+    marginBottom: 12,
     flexDirection: "row",
     alignItems: "center",
     gap: 9,
@@ -367,9 +501,110 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
   },
-  groupList: {
+  groupsHeader: {
+    marginTop: 24,
+  },
+  screenList: {
     paddingHorizontal: 18,
     paddingBottom: 30,
+    flexGrow: 1,
+  },
+  invitationList: {
+    gap: 10,
+  },
+  invitationCard: {
+    backgroundColor: "#FFFFFF",
+    padding: 15,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+  },
+  invitationTop: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  invitationIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 15,
+    backgroundColor: "#DBEAFE",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  invitationIconText: {
+    color: "#1D4ED8",
+    fontSize: 21,
+    fontWeight: "800",
+  },
+  invitationInfo: {
+    flex: 1,
+  },
+  invitationGroupName: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#111827",
+  },
+  invitationDescription: {
+    fontSize: 13,
+    color: "#4B5563",
+    marginTop: 4,
+  },
+  invitationDate: {
+    fontSize: 11,
+    color: "#9CA3AF",
+    marginTop: 4,
+  },
+  invitationActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 15,
+  },
+  acceptButton: {
+    flex: 1,
+    minHeight: 43,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#2563EB",
+    borderRadius: 11,
+    paddingHorizontal: 12,
+  },
+  acceptButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  declineButton: {
+    flex: 1,
+    minHeight: 43,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    paddingHorizontal: 12,
+  },
+  declineButtonText: {
+    color: "#4B5563",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  disabledButton: {
+    opacity: 0.65,
+  },
+  noInvitations: {
+    marginHorizontal: 2,
+    padding: 15,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  noInvitationsText: {
+    color: "#6B7280",
+    fontSize: 13,
+    lineHeight: 20,
   },
   groupCard: {
     flexDirection: "row",
@@ -423,15 +658,11 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     fontSize: 14,
   },
-  emptyList: {
-    flexGrow: 1,
-    paddingHorizontal: 28,
-    paddingBottom: 80,
-  },
   emptyState: {
-    flex: 1,
     alignItems: "center",
-    justifyContent: "center",
+    paddingHorizontal: 10,
+    paddingTop: 30,
+    paddingBottom: 30,
   },
   emptyIcon: {
     width: 66,
@@ -538,14 +769,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#2563EB",
     marginTop: 18,
   },
-  disabledButton: {
-    opacity: 0.65,
-  },
   submitButtonText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "800",
-  },
+  color: "#FFFFFF",
+  fontSize: 15,
+  fontWeight: "800",
+},
   cancelButton: {
     height: 46,
     alignItems: "center",
