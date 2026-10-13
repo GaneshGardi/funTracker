@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -12,9 +12,14 @@ import {
   Text,
   TextInput,
   View,
-} from 'react-native';
-import { Stack, useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
-import { supabase } from '../../lib/supabase';
+} from "react-native";
+import {
+  Stack,
+  useLocalSearchParams,
+  useRouter,
+  useFocusEffect,
+} from "expo-router";
+import { supabase } from "../../lib/supabase";
 
 type GroupInfo = {
   id: string;
@@ -25,7 +30,7 @@ type GroupInfo = {
 
 type Member = {
   user_id: string;
-  role: 'owner' | 'member';
+  role: "owner" | "member";
   joined_at: string;
 };
 
@@ -41,6 +46,14 @@ type SearchUser = {
   display_name: string | null;
 };
 
+type DailyProgress = {
+  user_id: string;
+  username: string;
+  display_name: string | null;
+  calories_consumed: number | string;
+  daily_calorie_goal: number | string | null;
+};
+
 export default function GroupDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -52,13 +65,16 @@ export default function GroupDetailsScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [inviteVisible, setInviteVisible] = useState(false);
-  const [username, setUsername] = useState('');
+  const [username, setUsername] = useState("");
   const [searchResults, setSearchResults] = useState<SearchUser[]>([]);
   const [searching, setSearching] = useState(false);
   const [sending, setSending] = useState(false);
-  const [searchError, setSearchError] = useState('');
+  const [searchError, setSearchError] = useState("");
 
   const groupId = Array.isArray(id) ? id[0] : id;
+
+  const [dailyProgress, setDailyProgress] = useState<DailyProgress[]>([]);
+  const [progressError, setProgressError] = useState("");
 
   const loadGroup = useCallback(async () => {
     if (!groupId) {
@@ -68,32 +84,59 @@ export default function GroupDetailsScreen() {
 
     try {
       const { data: groupData, error: groupError } = await supabase
-        .from('groups')
-        .select('id, name, created_by, created_at')
-        .eq('id', groupId)
+        .from("groups")
+        .select("id, name, created_by, created_at")
+        .eq("id", groupId)
         .single();
 
       if (groupError) throw groupError;
       setGroup(groupData);
 
       const { data: memberData, error: memberError } = await supabase
-        .from('group_members')
-        .select('user_id, role, joined_at')
-        .eq('group_id', groupId)
-        .order('joined_at', { ascending: true });
+        .from("group_members")
+        .select("user_id, role, joined_at")
+        .eq("group_id", groupId)
+        .order("joined_at", { ascending: true });
 
       if (memberError) throw memberError;
 
       const memberList = (memberData ?? []) as Member[];
       setMembers(memberList);
 
+      // Use the device's local calendar date, not UTC.
+      const now = new Date();
+      const localDate = [
+        now.getFullYear(),
+        String(now.getMonth() + 1).padStart(2, "0"),
+        String(now.getDate()).padStart(2, "0"),
+      ].join("-");
+
+      try {
+        const { data: progressData, error: progressFetchError } =
+          await supabase.rpc("get_group_daily_progress", {
+            p_group_id: groupId,
+            p_log_date: localDate,
+          });
+
+        if (progressFetchError) throw progressFetchError;
+
+        setDailyProgress((progressData ?? []) as DailyProgress[]);
+        setProgressError("");
+      } catch (error) {
+        console.error("Error loading group calorie progress:", error);
+        setDailyProgress([]);
+        setProgressError(
+          "Could not load calorie progress. Pull down to retry.",
+        );
+      }
+
       const userIds = [...new Set(memberList.map((member) => member.user_id))];
 
       if (userIds.length > 0) {
         const { data: profileData, error: profileError } = await supabase
-          .from('profiles')
-          .select('id, username, display_name')
-          .in('id', userIds);
+          .from("profiles")
+          .select("id, username, display_name")
+          .in("id", userIds);
 
         if (profileError) throw profileError;
 
@@ -107,10 +150,10 @@ export default function GroupDetailsScreen() {
         setProfiles({});
       }
     } catch (error) {
-      console.error('Error loading group details:', error);
+      console.error("Error loading group details:", error);
       Alert.alert(
-        'Unable to load group',
-        error instanceof Error ? error.message : 'Please try again.',
+        "Unable to load group",
+        error instanceof Error ? error.message : "Please try again.",
       );
     } finally {
       setLoading(false);
@@ -134,7 +177,7 @@ export default function GroupDetailsScreen() {
   useEffect(() => {
     const searchTerm = username.trim();
 
-    setSearchError('');
+    setSearchError("");
     setSearchResults([]);
 
     if (searchTerm.length < 2 || !inviteVisible) {
@@ -147,7 +190,7 @@ export default function GroupDetailsScreen() {
 
     const timeout = setTimeout(async () => {
       try {
-        const { data, error } = await supabase.rpc('search_users_for_invites', {
+        const { data, error } = await supabase.rpc("search_users_for_invites", {
           p_search: searchTerm,
         });
 
@@ -158,8 +201,10 @@ export default function GroupDetailsScreen() {
         }
       } catch (error) {
         if (!cancelled) {
-          console.error('Username search failed:', error);
-          setSearchError('Search is temporarily unavailable. You can still enter a username directly.');
+          console.error("Username search failed:", error);
+          setSearchError(
+            "Search is temporarily unavailable. You can still enter a username directly.",
+          );
         }
       } finally {
         if (!cancelled) setSearching(false);
@@ -175,28 +220,31 @@ export default function GroupDetailsScreen() {
   const closeInviteModal = () => {
     if (sending) return;
     setInviteVisible(false);
-    setUsername('');
+    setUsername("");
     setSearchResults([]);
-    setSearchError('');
+    setSearchError("");
   };
 
   const sendInvitation = async () => {
-    const targetUsername = username.trim().replace(/^@/, '');
+    const targetUsername = username.trim().replace(/^@/, "");
 
     if (!targetUsername) {
-      Alert.alert('Username required', 'Enter the username of the person you want to invite.');
+      Alert.alert(
+        "Username required",
+        "Enter the username of the person you want to invite.",
+      );
       return;
     }
 
     if (!groupId) {
-      Alert.alert('Group unavailable', 'Reopen the group and try again.');
+      Alert.alert("Group unavailable", "Reopen the group and try again.");
       return;
     }
 
     setSending(true);
 
     try {
-      const { error } = await supabase.rpc('send_group_invitation', {
+      const { error } = await supabase.rpc("send_group_invitation", {
         p_group_id: groupId,
         p_username: targetUsername,
       });
@@ -204,21 +252,21 @@ export default function GroupDetailsScreen() {
       if (error) throw error;
 
       setInviteVisible(false);
-      setUsername('');
+      setUsername("");
       setSearchResults([]);
-      setSearchError('');
+      setSearchError("");
 
       Alert.alert(
-        'Invitation sent!',
+        "Invitation sent!",
         `Your invitation to @${targetUsername} has been sent.`,
       );
     } catch (error) {
-      console.error('Error sending invitation:', error);
+      console.error("Error sending invitation:", error);
 
       const message =
-        error instanceof Error ? error.message : 'Please try again.';
+        error instanceof Error ? error.message : "Please try again.";
 
-      Alert.alert('Could not send invitation', message);
+      Alert.alert("Could not send invitation", message);
     } finally {
       setSending(false);
     }
@@ -226,17 +274,19 @@ export default function GroupDetailsScreen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ title: group?.name ?? 'Group details' }} />
+      <Stack.Screen options={{ title: group?.name ?? "Group details" }} />
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#2563EB" />
+          <ActivityIndicator size="large" color="#729580" />
           <Text style={styles.muted}>Loading group...</Text>
         </View>
       ) : !group ? (
         <View style={styles.center}>
           <Text style={styles.heading}>Group not found</Text>
-          <Text style={styles.muted}>You may not have access to this group.</Text>
+          <Text style={styles.muted}>
+            You may not have access to this group.
+          </Text>
           <Pressable style={styles.button} onPress={() => router.back()}>
             <Text style={styles.buttonText}>Go back</Text>
           </Pressable>
@@ -257,7 +307,7 @@ export default function GroupDetailsScreen() {
 
             <Text style={styles.groupName}>{group.name}</Text>
             <Text style={styles.muted}>
-              {members.length} {members.length === 1 ? 'member' : 'members'}
+              {members.length} {members.length === 1 ? "member" : "members"}
             </Text>
           </View>
 
@@ -266,6 +316,10 @@ export default function GroupDetailsScreen() {
             <Text style={styles.count}>{members.length}</Text>
           </View>
 
+          {!!progressError && (
+            <Text style={styles.progressError}>{progressError}</Text>
+          )}
+
           {members.length === 0 ? (
             <View style={styles.emptyCard}>
               <Text style={styles.muted}>No members found yet.</Text>
@@ -273,40 +327,100 @@ export default function GroupDetailsScreen() {
           ) : (
             members.map((member) => {
               const profile = profiles[member.user_id];
+
+              const progress = dailyProgress.find(
+                (item) => item.user_id === member.user_id,
+              );
+
+              const memberUsername =
+                progress?.username || profile?.username || "";
+
               const displayName =
-                profile?.display_name?.trim() || profile?.username || 'Member';
+                progress?.display_name?.trim() ||
+                profile?.display_name?.trim() ||
+                memberUsername ||
+                "Member";
+              const consumed = Number(progress?.calories_consumed) || 0;
+              const goal =
+                progress?.daily_calorie_goal == null
+                  ? null
+                  : Number(progress.daily_calorie_goal);
+
+              const percentage =
+                goal !== null && goal > 0
+                  ? Math.round((consumed / goal) * 100)
+                  : null;
 
               return (
                 <View key={member.user_id} style={styles.memberCard}>
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>
-                      {displayName.charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
+                  <View style={styles.memberTopRow}>
+                    <View style={styles.avatar}>
+                      <Text style={styles.avatarText}>
+                        {displayName.charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
 
-                  <View style={styles.memberInfo}>
-                    <Text style={styles.memberName}>{displayName}</Text>
-                    <Text style={styles.usernameLabel}>
-                      {profile?.username
-                        ? `@${profile.username}`
-                        : 'Username unavailable'}
-                    </Text>
-                  </View>
+                    <View style={styles.memberInfo}>
+                      <Text style={styles.memberName}>{displayName}</Text>
+                      <Text style={styles.usernameLabel}>
+                        {memberUsername
+                          ? `@${memberUsername}`
+                          : "Username unavailable"}
+                      </Text>
+                    </View>
 
-                  <View
-                    style={[
-                      styles.roleBadge,
-                      member.role === 'owner' && styles.ownerBadge,
-                    ]}
-                  >
-                    <Text
+                    <View
                       style={[
-                        styles.roleText,
-                        member.role === 'owner' && styles.ownerText,
+                        styles.roleBadge,
+                        member.role === "owner" && styles.ownerBadge,
                       ]}
                     >
-                      {member.role === 'owner' ? 'Owner' : 'Member'}
-                    </Text>
+                      <Text
+                        style={[
+                          styles.roleText,
+                          member.role === "owner" && styles.ownerText,
+                        ]}
+                      >
+                        {member.role === "owner" ? "Owner" : "Member"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.memberProgress}>
+                    <View style={styles.calorieNumbers}>
+                      <Text style={styles.caloriesConsumed}>
+                        {Math.round(consumed).toLocaleString()}
+                      </Text>
+
+                      <Text style={styles.calorieGoal}>
+                        {goal !== null && goal > 0
+                          ? `/ ${Math.round(goal).toLocaleString()} kcal`
+                          : "kcal · Goal not set"}
+                      </Text>
+
+                      {percentage !== null && (
+                        <Text style={styles.progressPercentage}>
+                          {percentage}%
+                        </Text>
+                      )}
+                    </View>
+
+                    {goal !== null && goal > 0 && (
+                      <View style={styles.progressTrack}>
+                        <View
+                          style={[
+                            styles.progressFill,
+                            {
+                              width: `${Math.min(percentage ?? 0, 100)}%`,
+                            },
+                          ]}
+                        />
+                      </View>
+                    )}
+
+                    {percentage !== null && percentage >= 100 && (
+                      <Text style={styles.goalReached}>Daily goal reached</Text>
+                    )}
                   </View>
                 </View>
               );
@@ -321,8 +435,8 @@ export default function GroupDetailsScreen() {
           </Pressable>
 
           <Text style={styles.footer}>
-            Shared calorie progress will appear here as we build the next
-            features. Individual food logs remain private.
+            Only daily calorie progress is shared. Individual food logs remain
+            private.
           </Text>
         </ScrollView>
       )}
@@ -335,12 +449,9 @@ export default function GroupDetailsScreen() {
       >
         <KeyboardAvoidingView
           style={styles.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <Pressable
-            style={styles.modalBackdrop}
-            onPress={closeInviteModal}
-          />
+          <Pressable style={styles.modalBackdrop} onPress={closeInviteModal} />
 
           <View style={styles.modalContent}>
             <View style={styles.modalHandle} />
@@ -368,7 +479,7 @@ export default function GroupDetailsScreen() {
 
             {searching && (
               <View style={styles.searchStatus}>
-                <ActivityIndicator size="small" color="#2563EB" />
+                <ActivityIndicator size="small" color="#729580" />
                 <Text style={styles.searchStatusText}>Searching users...</Text>
               </View>
             )}
@@ -448,145 +559,250 @@ export default function GroupDetailsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFC' },
-  content: { padding: 20, paddingBottom: 36 },
+  container: {
+    flex: 1,
+    backgroundColor: "#F7F8F6",
+  },
+  content: {
+    padding: 20,
+    paddingBottom: 36,
+  },
   center: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     padding: 24,
     gap: 12,
   },
   hero: {
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
     padding: 24,
     borderRadius: 20,
     marginBottom: 28,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: "#E9EDE9",
   },
   groupIcon: {
     width: 68,
     height: 68,
     borderRadius: 22,
-    backgroundColor: '#DBEAFE',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#EAF0EB",
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: 14,
   },
-  groupIconText: { fontSize: 30, fontWeight: '700', color: '#1D4ED8' },
+  groupIconText: {
+    fontSize: 30,
+    fontWeight: "700",
+    color: "#557361",
+  },
   groupName: {
     fontSize: 23,
-    fontWeight: '700',
-    color: '#0F172A',
-    textAlign: 'center',
+    fontWeight: "700",
+    color: "#202923",
+    textAlign: "center",
   },
-  heading: { fontSize: 22, fontWeight: '700', color: '#0F172A' },
-  muted: { color: '#64748B', fontSize: 14, marginTop: 6 },
+  heading: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#202923",
+  },
+  muted: {
+    color: "#849087",
+    fontSize: 14,
+    marginTop: 6,
+  },
   sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
     marginBottom: 14,
   },
-  sectionTitle: { fontSize: 19, fontWeight: '700', color: '#0F172A' },
+  sectionTitle: {
+    fontSize: 19,
+    fontWeight: "700",
+    color: "#202923",
+  },
   count: {
-    overflow: 'hidden',
-    backgroundColor: '#E2E8F0',
-    color: '#334155',
+    overflow: "hidden",
+    backgroundColor: "#EAF0EB",
+    color: "#557361",
     paddingHorizontal: 9,
     paddingVertical: 3,
     borderRadius: 10,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   memberCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 15,
-    padding: 14,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 16,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: "#E9EDE9",
+  },
+  memberTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#F1F5F9',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#EAF0EB",
+    alignItems: "center",
+    justifyContent: "center",
     marginRight: 12,
   },
-  avatarText: { fontSize: 18, fontWeight: '700', color: '#334155' },
-  memberInfo: { flex: 1 },
-  memberName: { fontSize: 15, fontWeight: '600', color: '#0F172A' },
-  usernameLabel: { fontSize: 13, color: '#64748B', marginTop: 3 },
+  avatarText: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#557361",
+  },
+  memberInfo: {
+    flex: 1,
+  },
+  memberName: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#202923",
+  },
+  usernameLabel: {
+    fontSize: 13,
+    color: "#879189",
+    marginTop: 3,
+  },
   roleBadge: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: "#F1F3F0",
     paddingHorizontal: 9,
     paddingVertical: 5,
     borderRadius: 8,
   },
-  ownerBadge: { backgroundColor: '#DBEAFE' },
-  roleText: { fontSize: 12, fontWeight: '600', color: '#475569' },
-  ownerText: { color: '#1D4ED8' },
+  ownerBadge: {
+    backgroundColor: "#EAF0EB",
+  },
+  roleText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#68756C",
+  },
+  ownerText: {
+    color: "#557361",
+  },
+  memberProgress: {
+    marginTop: 15,
+  },
+  calorieNumbers: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 10,
+  },
+  caloriesConsumed: {
+    color: "#202923",
+    fontSize: 23,
+    fontWeight: "700",
+    letterSpacing: -0.4,
+  },
+  calorieGoal: {
+    color: "#879189",
+    fontSize: 13,
+  },
+  progressPercentage: {
+    color: "#557361",
+    fontSize: 14,
+    fontWeight: "700",
+    marginLeft: "auto",
+  },
+  progressTrack: {
+    height: 6,
+    backgroundColor: "#EDF1ED",
+    borderRadius: 6,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    backgroundColor: "#729580",
+    borderRadius: 6,
+  },
+  goalReached: {
+    color: "#557361",
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 8,
+  },
+  progressError: {
+    color: "#B91C1C",
+    fontSize: 13,
+    marginBottom: 12,
+  },
   emptyCard: {
     padding: 22,
     borderRadius: 14,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
   },
   button: {
-    backgroundColor: '#2563EB',
+    backgroundColor: "#557361",
     padding: 15,
     borderRadius: 13,
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 22,
   },
-  buttonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  buttonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "700",
+  },
   footer: {
-    textAlign: 'center',
+    textAlign: "center",
     fontSize: 12,
     lineHeight: 18,
-    color: '#64748B',
+    color: "#879189",
     marginTop: 18,
   },
-  modalOverlay: { flex: 1, justifyContent: 'flex-end' },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
   modalBackdrop: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(15, 23, 42, 0.48)',
+    backgroundColor: "rgba(15, 23, 42, 0.48)",
   },
   modalContent: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: 24,
     paddingTop: 12,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 24,
+    paddingBottom: Platform.OS === "ios" ? 34 : 24,
     borderTopLeftRadius: 26,
     borderTopRightRadius: 26,
-    maxHeight: '90%',
+    maxHeight: "90%",
   },
   modalHandle: {
     width: 42,
     height: 5,
     borderRadius: 3,
-    backgroundColor: '#D1D5DB',
-    alignSelf: 'center',
+    backgroundColor: "#D1D5DB",
+    alignSelf: "center",
     marginBottom: 22,
   },
-  modalTitle: { color: '#111827', fontSize: 24, fontWeight: '800' },
+  modalTitle: {
+    color: "#202923",
+    fontSize: 24,
+    fontWeight: "800",
+  },
   modalDescription: {
-    color: '#6B7280',
+    color: "#6B7280",
     fontSize: 14,
     lineHeight: 21,
     marginTop: 8,
     marginBottom: 24,
   },
   inputLabel: {
-    color: '#374151',
+    color: "#374151",
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: "800",
     letterSpacing: 1,
     marginBottom: 8,
   },
@@ -594,54 +810,84 @@ const styles = StyleSheet.create({
     height: 52,
     paddingHorizontal: 15,
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: "#D1D5DB",
     borderRadius: 12,
     fontSize: 15,
-    color: '#111827',
-    backgroundColor: '#FFFFFF',
+    color: "#111827",
+    backgroundColor: "#FFFFFF",
   },
   searchStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     marginTop: 12,
   },
-  searchStatusText: { color: '#64748B', fontSize: 13, marginTop: 10 },
-  errorText: { color: '#B91C1C', fontSize: 13, marginTop: 10 },
-  resultsContainer: { marginTop: 18 },
+  searchStatusText: {
+    color: "#64748B",
+    fontSize: 13,
+    marginTop: 10,
+  },
+  errorText: {
+    color: "#B91C1C",
+    fontSize: 13,
+    marginTop: 10,
+  },
+  resultsContainer: {
+    marginTop: 18,
+  },
   resultsTitle: {
-    color: '#374151',
+    color: "#374151",
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
     letterSpacing: 0.5,
     marginBottom: 8,
   },
   resultRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: "#E5E7EB",
   },
   resultAvatar: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: '#DBEAFE',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#EAF0EB",
+    alignItems: "center",
+    justifyContent: "center",
     marginRight: 10,
   },
-  resultAvatarText: { color: '#1D4ED8', fontWeight: '700', fontSize: 15 },
-  resultInfo: { flex: 1 },
-  resultName: { color: '#111827', fontSize: 14, fontWeight: '600' },
-  selectLabel: { color: '#2563EB', fontSize: 12, fontWeight: '700' },
-  disabledButton: { opacity: 0.6 },
+  resultAvatarText: {
+    color: "#557361",
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  resultInfo: {
+    flex: 1,
+  },
+  resultName: {
+    color: "#202923",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  selectLabel: {
+    color: "#557361",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
   cancelButton: {
     height: 46,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginTop: 6,
   },
-  cancelButtonText: { color: '#6B7280', fontSize: 14, fontWeight: '700' },
+  cancelButtonText: {
+    color: "#6B7280",
+    fontSize: 14,
+    fontWeight: "700",
+  },
 });
