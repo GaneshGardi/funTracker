@@ -20,6 +20,7 @@ import {
   useFocusEffect,
 } from "expo-router";
 import { supabase } from "../../lib/supabase";
+import GroupWeeklyHistory from "../../components/GroupWeeklyHistory";
 
 type GroupInfo = {
   id: string;
@@ -75,6 +76,8 @@ export default function GroupDetailsScreen() {
 
   const [dailyProgress, setDailyProgress] = useState<DailyProgress[]>([]);
   const [progressError, setProgressError] = useState("");
+
+  const [weeklyRefreshToken, setWeeklyRefreshToken] = useState(0);
 
   const loadGroup = useCallback(async () => {
     if (!groupId) {
@@ -170,6 +173,7 @@ export default function GroupDetailsScreen() {
 
   const refresh = () => {
     setRefreshing(true);
+    setWeeklyRefreshToken((current) => current + 1);
     void loadGroup();
   };
 
@@ -426,6 +430,11 @@ export default function GroupDetailsScreen() {
               );
             })
           )}
+
+          <GroupWeeklyHistory
+            groupId={groupId}
+            refreshToken={weeklyRefreshToken}
+          />
 
           <Pressable
             style={styles.button}
