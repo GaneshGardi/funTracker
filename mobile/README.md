@@ -59,3 +59,4 @@ Join our community of developers creating universal apps.
 todos
 -> cooked and uncooked macros logic 
 -> add colors to the UI for different macros.
+-> easy add frequently added foods 

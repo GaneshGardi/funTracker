@@ -302,6 +302,21 @@ export default function HomeScreen() {
           </View>
         </Pressable>
 
+                {/* AI Meal Scanner */}
+        <Pressable
+          style={styles.addFoodButton}
+          onPress={() => router.push('/scan-meal')}
+        >
+          <Text style={styles.addFoodIcon}>✨</Text>
+
+          <View>
+            <Text style={styles.addFoodTitle}>Scan meal with AI</Text>
+            <Text style={styles.addFoodSubtitle}>
+              Estimate calories from a photo
+            </Text>
+          </View>
+        </Pressable>
+
         {/* Today's Food */}
         <Text style={styles.sectionTitle}>Today's food</Text>
 
