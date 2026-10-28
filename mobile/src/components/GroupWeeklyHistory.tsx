@@ -3,7 +3,6 @@ import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -24,12 +23,7 @@ type WeeklyHistoryRow = {
 type GroupWeeklyHistoryProps = {
   groupId: string;
   refreshToken: number;
-};
-
-type MemberOption = {
-  user_id: string;
-  username: string;
-  display_name: string | null;
+  memberId: string;
 };
 
 const getLocalDateString = (date: Date) => {
@@ -66,14 +60,14 @@ const getCalories = (value: number | string | null | undefined) => {
 export default function GroupWeeklyHistory({
   groupId,
   refreshToken,
+  memberId,
 }: GroupWeeklyHistoryProps) {
   const [history, setHistory] = useState<WeeklyHistoryRow[]>([]);
-  const [selectedMemberId, setSelectedMemberId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const loadHistory = useCallback(async () => {
-    if (!groupId) {
+    if (!groupId || !memberId) {
       setHistory([]);
       setLoading(false);
       return;
@@ -105,19 +99,11 @@ export default function GroupWeeklyHistory({
 
       if (fetchError) throw fetchError;
 
+      // Keep only the member whose history is currently open.
       const rows = (data ?? []) as WeeklyHistoryRow[];
-
-      setHistory(rows);
-
-      setSelectedMemberId((current) => {
-        if (current && rows.some((row) => row.user_id === current)) {
-          return current;
-        }
-
-        return rows[0]?.user_id ?? "";
-      });
+      setHistory(rows.filter((row) => row.user_id === memberId));
     } catch (err) {
-      console.error("Failed to load group weekly history:", err);
+      console.error("Failed to load member weekly history:", err);
       setHistory([]);
       setError(
         "Couldn't load weekly history. Pull down to refresh and try again.",
@@ -125,7 +111,7 @@ export default function GroupWeeklyHistory({
     } finally {
       setLoading(false);
     }
-  }, [groupId]);
+  }, [groupId, memberId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -133,35 +119,11 @@ export default function GroupWeeklyHistory({
     }, [loadHistory, refreshToken]),
   );
 
-  const members: MemberOption[] = [];
-  const seenMembers = new Set<string>();
-
-  for (const row of history) {
-    if (!seenMembers.has(row.user_id)) {
-      seenMembers.add(row.user_id);
-      members.push({
-        user_id: row.user_id,
-        username: row.username,
-        display_name: row.display_name,
-      });
-    }
-  }
-
-  members.sort((a, b) =>
-    (a.display_name || a.username).localeCompare(
-      b.display_name || b.username,
-      undefined,
-      { sensitivity: "base" },
-    ),
+  const selectedDays = history.sort((a, b) =>
+    a.log_date.localeCompare(b.log_date),
   );
 
-  const selectedMember = members.find(
-    (member) => member.user_id === selectedMemberId,
-  );
-
-  const selectedDays = history
-    .filter((row) => row.user_id === selectedMemberId)
-    .sort((a, b) => a.log_date.localeCompare(b.log_date));
+  const selectedMember = selectedDays[0];
 
   const totalCalories = selectedDays.reduce(
     (sum, day) => sum + getCalories(day.calories_consumed),
@@ -186,9 +148,7 @@ export default function GroupWeeklyHistory({
       <View style={styles.headingRow}>
         <View style={styles.headingText}>
           <Text style={styles.sectionTitle}>Weekly history</Text>
-          <Text style={styles.subtitle}>
-            Last 7 days · calories only
-          </Text>
+          <Text style={styles.subtitle}>Last 7 days · calories only</Text>
         </View>
 
         <Pressable
@@ -217,81 +177,44 @@ export default function GroupWeeklyHistory({
             <Text style={styles.retryText}>Try again</Text>
           </Pressable>
         </View>
-      ) : members.length === 0 ? (
+      ) : !selectedMember ? (
         <View style={styles.statusCard}>
           <Text style={styles.muted}>
-            No weekly history is available yet.
+            No weekly history is available for this member yet.
           </Text>
         </View>
       ) : (
         <>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.memberSelector}
-          >
-            {members.map((member) => {
-              const isSelected = member.user_id === selectedMemberId;
-              const label =
-                member.display_name?.trim() || member.username;
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryName}>
+              {selectedMember.display_name?.trim() ||
+                selectedMember.username}
+            </Text>
 
-              return (
-                <Pressable
-                  key={member.user_id}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isSelected }}
-                  style={[
-                    styles.memberPill,
-                    isSelected && styles.memberPillSelected,
-                  ]}
-                  onPress={() => setSelectedMemberId(member.user_id)}
-                >
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      styles.memberPillText,
-                      isSelected && styles.memberPillTextSelected,
-                    ]}
-                  >
-                    {label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+            <Text style={styles.summaryUsername}>
+              @{selectedMember.username}
+            </Text>
 
-          {selectedMember && (
-            <View style={styles.summaryCard}>
-              <Text style={styles.summaryName}>
-                {selectedMember.display_name?.trim() ||
-                  selectedMember.username}
-              </Text>
+            <View style={styles.summaryStats}>
+              <View style={styles.summaryStat}>
+                <Text style={styles.statLabel}>7-day total</Text>
+                <Text style={styles.statValue}>
+                  {Math.round(totalCalories).toLocaleString()}
+                </Text>
+                <Text style={styles.statUnit}>kcal</Text>
+              </View>
 
-              <Text style={styles.summaryUsername}>
-                @{selectedMember.username}
-              </Text>
+              <View style={styles.statDivider} />
 
-              <View style={styles.summaryStats}>
-                <View style={styles.summaryStat}>
-                  <Text style={styles.statLabel}>7-day total</Text>
-                  <Text style={styles.statValue}>
-                    {Math.round(totalCalories).toLocaleString()}
-                  </Text>
-                  <Text style={styles.statUnit}>kcal</Text>
-                </View>
-
-                <View style={styles.statDivider} />
-
-                <View style={styles.summaryStat}>
-                  <Text style={styles.statLabel}>Daily average</Text>
-                  <Text style={styles.statValue}>
-                    {Math.round(averageCalories).toLocaleString()}
-                  </Text>
-                  <Text style={styles.statUnit}>kcal/day</Text>
-                </View>
+              <View style={styles.summaryStat}>
+                <Text style={styles.statLabel}>Daily average</Text>
+                <Text style={styles.statValue}>
+                  {Math.round(averageCalories).toLocaleString()}
+                </Text>
+                <Text style={styles.statUnit}>kcal/day</Text>
               </View>
             </View>
-          )}
+          </View>
 
           <View style={styles.chartCard}>
             <Text style={styles.chartTitle}>Daily calories</Text>
@@ -355,9 +278,7 @@ export default function GroupWeeklyHistory({
                     <Text style={styles.weekdayLabel}>
                       {labels.weekday}
                     </Text>
-                    <Text style={styles.dateLabel}>
-                      {labels.date}
-                    </Text>
+                    <Text style={styles.dateLabel}>{labels.date}</Text>
                   </View>
                 );
               })}
@@ -440,7 +361,7 @@ export default function GroupWeeklyHistory({
 
 const styles = StyleSheet.create({
   section: {
-    marginTop: 30,
+    marginTop: 16,
   },
   headingRow: {
     flexDirection: "row",
@@ -503,31 +424,6 @@ const styles = StyleSheet.create({
     color: "#557361",
     fontWeight: "700",
     fontSize: 13,
-  },
-  memberSelector: {
-    gap: 8,
-    paddingBottom: 14,
-  },
-  memberPill: {
-    maxWidth: 190,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E0E7E0",
-  },
-  memberPillSelected: {
-    backgroundColor: "#557361",
-    borderColor: "#557361",
-  },
-  memberPillText: {
-    color: "#557361",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  memberPillTextSelected: {
-    color: "#FFFFFF",
   },
   summaryCard: {
     padding: 17,

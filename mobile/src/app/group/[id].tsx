@@ -20,7 +20,6 @@ import {
   useFocusEffect,
 } from "expo-router";
 import { supabase } from "../../lib/supabase";
-import GroupWeeklyHistory from "../../components/GroupWeeklyHistory";
 
 type GroupInfo = {
   id: string;
@@ -59,11 +58,16 @@ export default function GroupDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
 
+  const groupId = Array.isArray(id) ? id[0] : id;
+
   const [group, setGroup] = useState<GroupInfo | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
+  const [dailyProgress, setDailyProgress] = useState<DailyProgress[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [progressError, setProgressError] = useState("");
 
   const [inviteVisible, setInviteVisible] = useState(false);
   const [username, setUsername] = useState("");
@@ -72,16 +76,10 @@ export default function GroupDetailsScreen() {
   const [sending, setSending] = useState(false);
   const [searchError, setSearchError] = useState("");
 
-  const groupId = Array.isArray(id) ? id[0] : id;
-
-  const [dailyProgress, setDailyProgress] = useState<DailyProgress[]>([]);
-  const [progressError, setProgressError] = useState("");
-
-  const [weeklyRefreshToken, setWeeklyRefreshToken] = useState(0);
-
   const loadGroup = useCallback(async () => {
     if (!groupId) {
       setLoading(false);
+      setRefreshing(false);
       return;
     }
 
@@ -93,6 +91,7 @@ export default function GroupDetailsScreen() {
         .single();
 
       if (groupError) throw groupError;
+
       setGroup(groupData);
 
       const { data: memberData, error: memberError } = await supabase
@@ -108,6 +107,7 @@ export default function GroupDetailsScreen() {
 
       // Use the device's local calendar date, not UTC.
       const now = new Date();
+
       const localDate = [
         now.getFullYear(),
         String(now.getMonth() + 1).padStart(2, "0"),
@@ -127,13 +127,16 @@ export default function GroupDetailsScreen() {
         setProgressError("");
       } catch (error) {
         console.error("Error loading group calorie progress:", error);
+
         setDailyProgress([]);
         setProgressError(
           "Could not load calorie progress. Pull down to retry.",
         );
       }
 
-      const userIds = [...new Set(memberList.map((member) => member.user_id))];
+      const userIds = [
+        ...new Set(memberList.map((member) => member.user_id)),
+      ];
 
       if (userIds.length > 0) {
         const { data: profileData, error: profileError } = await supabase
@@ -144,6 +147,7 @@ export default function GroupDetailsScreen() {
         if (profileError) throw profileError;
 
         const profileMap: Record<string, Profile> = {};
+
         (profileData ?? []).forEach((profile) => {
           profileMap[profile.id] = profile as Profile;
         });
@@ -154,6 +158,7 @@ export default function GroupDetailsScreen() {
       }
     } catch (error) {
       console.error("Error loading group details:", error);
+
       Alert.alert(
         "Unable to load group",
         error instanceof Error ? error.message : "Please try again.",
@@ -173,11 +178,11 @@ export default function GroupDetailsScreen() {
 
   const refresh = () => {
     setRefreshing(true);
-    setWeeklyRefreshToken((current) => current + 1);
     void loadGroup();
   };
 
-  // Search while typing, with a short delay to avoid querying on every keystroke.
+  // Search while typing, with a short delay to avoid querying
+  // on every keystroke.
   useEffect(() => {
     const searchTerm = username.trim();
 
@@ -190,13 +195,17 @@ export default function GroupDetailsScreen() {
     }
 
     let cancelled = false;
+
     setSearching(true);
 
     const timeout = setTimeout(async () => {
       try {
-        const { data, error } = await supabase.rpc("search_users_for_invites", {
-          p_search: searchTerm,
-        });
+        const { data, error } = await supabase.rpc(
+          "search_users_for_invites",
+          {
+            p_search: searchTerm,
+          },
+        );
 
         if (error) throw error;
 
@@ -206,12 +215,15 @@ export default function GroupDetailsScreen() {
       } catch (error) {
         if (!cancelled) {
           console.error("Username search failed:", error);
+
           setSearchError(
             "Search is temporarily unavailable. You can still enter a username directly.",
           );
         }
       } finally {
-        if (!cancelled) setSearching(false);
+        if (!cancelled) {
+          setSearching(false);
+        }
       }
     }, 350);
 
@@ -223,6 +235,7 @@ export default function GroupDetailsScreen() {
 
   const closeInviteModal = () => {
     if (sending) return;
+
     setInviteVisible(false);
     setUsername("");
     setSearchResults([]);
@@ -241,7 +254,10 @@ export default function GroupDetailsScreen() {
     }
 
     if (!groupId) {
-      Alert.alert("Group unavailable", "Reopen the group and try again.");
+      Alert.alert(
+        "Group unavailable",
+        "Reopen the group and try again.",
+      );
       return;
     }
 
@@ -276,9 +292,24 @@ export default function GroupDetailsScreen() {
     }
   };
 
+  // Open the selected member's individual weekly history screen.
+  const openMemberHistory = (memberId: string) => {
+    if (!groupId || !memberId) return;
+
+    router.push({
+      pathname: "/group/[id]/history/[memberId]",
+      params: {
+        id: groupId,
+        memberId,
+      },
+    });
+  };
+
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ title: group?.name ?? "Group details" }} />
+      <Stack.Screen
+        options={{ title: group?.name ?? "Group details" }}
+      />
 
       {loading ? (
         <View style={styles.center}>
@@ -288,10 +319,15 @@ export default function GroupDetailsScreen() {
       ) : !group ? (
         <View style={styles.center}>
           <Text style={styles.heading}>Group not found</Text>
+
           <Text style={styles.muted}>
             You may not have access to this group.
           </Text>
-          <Pressable style={styles.button} onPress={() => router.back()}>
+
+          <Pressable
+            style={styles.button}
+            onPress={() => router.back()}
+          >
             <Text style={styles.buttonText}>Go back</Text>
           </Pressable>
         </View>
@@ -299,7 +335,10 @@ export default function GroupDetailsScreen() {
         <ScrollView
           contentContainerStyle={styles.content}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={refresh} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={refresh}
+            />
           }
         >
           <View style={styles.hero}>
@@ -310,8 +349,10 @@ export default function GroupDetailsScreen() {
             </View>
 
             <Text style={styles.groupName}>{group.name}</Text>
+
             <Text style={styles.muted}>
-              {members.length} {members.length === 1 ? "member" : "members"}
+              {members.length}{" "}
+              {members.length === 1 ? "member" : "members"}
             </Text>
           </View>
 
@@ -321,12 +362,16 @@ export default function GroupDetailsScreen() {
           </View>
 
           {!!progressError && (
-            <Text style={styles.progressError}>{progressError}</Text>
+            <Text style={styles.progressError}>
+              {progressError}
+            </Text>
           )}
 
           {members.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.muted}>No members found yet.</Text>
+              <Text style={styles.muted}>
+                No members found yet.
+              </Text>
             </View>
           ) : (
             members.map((member) => {
@@ -344,7 +389,10 @@ export default function GroupDetailsScreen() {
                 profile?.display_name?.trim() ||
                 memberUsername ||
                 "Member";
-              const consumed = Number(progress?.calories_consumed) || 0;
+
+              const consumed =
+                Number(progress?.calories_consumed) || 0;
+
               const goal =
                 progress?.daily_calorie_goal == null
                   ? null
@@ -356,7 +404,20 @@ export default function GroupDetailsScreen() {
                   : null;
 
               return (
-                <View key={member.user_id} style={styles.memberCard}>
+                <Pressable
+                  key={member.user_id}
+                  style={({ pressed }) => [
+                    styles.memberCard,
+                    pressed && styles.memberCardPressed,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    `View weekly history for ${displayName}`
+                  }
+                  onPress={() =>
+                    openMemberHistory(member.user_id)
+                  }
+                >
                   <View style={styles.memberTopRow}>
                     <View style={styles.avatar}>
                       <Text style={styles.avatarText}>
@@ -365,7 +426,10 @@ export default function GroupDetailsScreen() {
                     </View>
 
                     <View style={styles.memberInfo}>
-                      <Text style={styles.memberName}>{displayName}</Text>
+                      <Text style={styles.memberName}>
+                        {displayName}
+                      </Text>
+
                       <Text style={styles.usernameLabel}>
                         {memberUsername
                           ? `@${memberUsername}`
@@ -376,16 +440,20 @@ export default function GroupDetailsScreen() {
                     <View
                       style={[
                         styles.roleBadge,
-                        member.role === "owner" && styles.ownerBadge,
+                        member.role === "owner" &&
+                          styles.ownerBadge,
                       ]}
                     >
                       <Text
                         style={[
                           styles.roleText,
-                          member.role === "owner" && styles.ownerText,
+                          member.role === "owner" &&
+                            styles.ownerText,
                         ]}
                       >
-                        {member.role === "owner" ? "Owner" : "Member"}
+                        {member.role === "owner"
+                          ? "Owner"
+                          : "Member"}
                       </Text>
                     </View>
                   </View>
@@ -415,7 +483,10 @@ export default function GroupDetailsScreen() {
                           style={[
                             styles.progressFill,
                             {
-                              width: `${Math.min(percentage ?? 0, 100)}%`,
+                              width: `${Math.min(
+                                percentage ?? 0,
+                                100,
+                              )}%`,
                             },
                           ]}
                         />
@@ -423,29 +494,32 @@ export default function GroupDetailsScreen() {
                     )}
 
                     {percentage !== null && percentage >= 100 && (
-                      <Text style={styles.goalReached}>Daily goal reached</Text>
+                      <Text style={styles.goalReached}>
+                        Daily goal reached
+                      </Text>
                     )}
                   </View>
-                </View>
+
+                  <Text style={styles.historyHint}>
+                    Tap to view weekly history ›
+                  </Text>
+                </Pressable>
               );
             })
           )}
-
-          <GroupWeeklyHistory
-            groupId={groupId}
-            refreshToken={weeklyRefreshToken}
-          />
 
           <Pressable
             style={styles.button}
             onPress={() => setInviteVisible(true)}
           >
-            <Text style={styles.buttonText}>+ Invite friends</Text>
+            <Text style={styles.buttonText}>
+              + Invite friends
+            </Text>
           </Pressable>
 
           <Text style={styles.footer}>
-            Only daily calorie progress is shared. Individual food logs remain
-            private.
+            Only daily calorie progress is shared. Individual food
+            logs remain private.
           </Text>
         </ScrollView>
       )}
@@ -460,14 +534,21 @@ export default function GroupDetailsScreen() {
           style={styles.modalOverlay}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <Pressable style={styles.modalBackdrop} onPress={closeInviteModal} />
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={closeInviteModal}
+          />
 
           <View style={styles.modalContent}>
             <View style={styles.modalHandle} />
 
-            <Text style={styles.modalTitle}>Invite a friend</Text>
+            <Text style={styles.modalTitle}>
+              Invite a friend
+            </Text>
+
             <Text style={styles.modalDescription}>
-              Search by username or display name, or enter an exact username.
+              Search by username or display name, or enter an exact
+              username.
             </Text>
 
             <Text style={styles.inputLabel}>USERNAME</Text>
@@ -488,13 +569,20 @@ export default function GroupDetailsScreen() {
 
             {searching && (
               <View style={styles.searchStatus}>
-                <ActivityIndicator size="small" color="#729580" />
-                <Text style={styles.searchStatusText}>Searching users...</Text>
+                <ActivityIndicator
+                  size="small"
+                  color="#729580"
+                />
+                <Text style={styles.searchStatusText}>
+                  Searching users...
+                </Text>
               </View>
             )}
 
             {!!searchError && (
-              <Text style={styles.errorText}>{searchError}</Text>
+              <Text style={styles.errorText}>
+                {searchError}
+              </Text>
             )}
 
             {username.trim().length >= 2 &&
@@ -508,7 +596,9 @@ export default function GroupDetailsScreen() {
 
             {searchResults.length > 0 && (
               <View style={styles.resultsContainer}>
-                <Text style={styles.resultsTitle}>Matching users</Text>
+                <Text style={styles.resultsTitle}>
+                  Matching users
+                </Text>
 
                 {searchResults.map((user) => {
                   const displayName =
@@ -528,13 +618,18 @@ export default function GroupDetailsScreen() {
                       </View>
 
                       <View style={styles.resultInfo}>
-                        <Text style={styles.resultName}>{displayName}</Text>
+                        <Text style={styles.resultName}>
+                          {displayName}
+                        </Text>
+
                         <Text style={styles.usernameLabel}>
                           @{user.username}
                         </Text>
                       </View>
 
-                      <Text style={styles.selectLabel}>Select</Text>
+                      <Text style={styles.selectLabel}>
+                        Select
+                      </Text>
                     </Pressable>
                   );
                 })}
@@ -542,14 +637,19 @@ export default function GroupDetailsScreen() {
             )}
 
             <Pressable
-              style={[styles.button, sending && styles.disabledButton]}
+              style={[
+                styles.button,
+                sending && styles.disabledButton,
+              ]}
               onPress={() => void sendInvitation()}
               disabled={sending}
             >
               {sending ? (
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
-                <Text style={styles.buttonText}>Send invitation</Text>
+                <Text style={styles.buttonText}>
+                  Send invitation
+                </Text>
               )}
             </Pressable>
 
@@ -558,7 +658,9 @@ export default function GroupDetailsScreen() {
               onPress={closeInviteModal}
               disabled={sending}
             >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
+              <Text style={styles.cancelButtonText}>
+                Cancel
+              </Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>
@@ -649,6 +751,17 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     borderWidth: 1,
     borderColor: "#E9EDE9",
+  },
+  memberCardPressed: {
+    opacity: 0.78,
+    borderColor: "#729580",
+  },
+  historyHint: {
+    color: "#557361",
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 14,
+    textAlign: "right",
   },
   memberTopRow: {
     flexDirection: "row",
