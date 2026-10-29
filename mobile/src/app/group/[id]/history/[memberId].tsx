@@ -28,7 +28,19 @@ export default function GroupMemberHistoryScreen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ title: "Weekly history" }} />
+      <Stack.Screen
+        options={{
+          title: "Weekly history",
+          headerStyle: { backgroundColor: "#101010" },
+          headerTintColor: "#FFFFFF",
+          headerTitleStyle: {
+            fontWeight: "700",
+          },
+          contentStyle: {
+            backgroundColor: "#101010",
+          },
+        }}
+      />
 
       <GroupWeeklyHistory
         groupId={groupId}
@@ -42,16 +54,19 @@ export default function GroupMemberHistoryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F7F8F6",
+    backgroundColor: "#101010",
   },
   center: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     padding: 24,
+    backgroundColor: "#101010",
   },
   errorText: {
-    color: "#B91C1C",
+    color: "#B6F36B",
     fontSize: 14,
+    fontWeight: "500",
+    textAlign: "center",
   },
 });

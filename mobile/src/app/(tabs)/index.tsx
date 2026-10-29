@@ -1,7 +1,9 @@
-import { useCallback, useState } from "react";
+
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,10 +11,31 @@ import {
   View,
 } from "react-native";
 import { router, useFocusEffect } from "expo-router";
+import Svg, { Circle } from "react-native-svg";
+import {
+  Apple,
+  Camera,
+  ChevronRight,
+  Flame,
+  Leaf,
+  Plus,
+  ScanLine,
+  Trash2,
+  UserRound,
+  Wheat,
+  Beef,
+  Droplets,
+} from "lucide-react-native";
 
 import { getCurrentUser, isProfileComplete } from "../../lib/auth";
-
 import { supabase } from "../../lib/supabase";
+
+const BG = "#101010";
+const CARD = "#1A1A1A";
+const ACCENT = "#B6F36B";
+const TEXT = "#FFFFFF";
+const MUTED = "#999999";
+const BORDER = "#303030";
 
 type DashboardNutrition = {
   calories: number;
@@ -32,9 +55,7 @@ type FoodLog = {
 
 export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
-
   const [dailyCalories, setDailyCalories] = useState<number | null>(null);
-
   const [nutrition, setNutrition] = useState<DashboardNutrition>({
     calories: 0,
     protein: 0,
@@ -42,8 +63,105 @@ export default function HomeScreen() {
     fat: 0,
     fiber: 0,
   });
-
   const [foodLogs, setFoodLogs] = useState<FoodLog[]>([]);
+
+  const loadDashboard = async () => {
+    setLoading(true);
+
+    try {
+      const user = await getCurrentUser();
+
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+
+      const complete = await isProfileComplete(user.id);
+
+      if (!complete) {
+        setLoading(false);
+        router.replace("/onboarding");
+        return;
+      }
+
+      const { data: goalData, error: goalError } = await supabase
+        .from("calorie_goals")
+        .select("daily_calories")
+        .eq("user_id", user.id)
+        .order("effective_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (goalError) {
+        console.error("Failed to load calorie goal:", goalError);
+      } else {
+        setDailyCalories(
+          goalData ? Number(goalData.daily_calories) : null,
+        );
+      }
+
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, "0");
+      const day = String(now.getDate()).padStart(2, "0");
+      const today = `${year}-${month}-${day}`;
+
+      const { data: todaysFoodLogs, error: foodLogsError } = await supabase
+        .from("food_logs")
+        .select(
+          "id, food_name, quantity, unit, calories, protein, carbs, fat, fiber",
+        )
+        .eq("user_id", user.id)
+        .eq("log_date", today)
+        .order("created_at", { ascending: false });
+
+      if (foodLogsError) {
+        console.error("Failed to load food logs:", foodLogsError);
+        setFoodLogs([]);
+        setNutrition({
+          calories: 0,
+          protein: 0,
+          carbs: 0,
+          fat: 0,
+          fiber: 0,
+        });
+      } else {
+        setFoodLogs(
+          (todaysFoodLogs ?? []).map((food) => ({
+            id: food.id,
+            food_name: food.food_name,
+            quantity: Number(food.quantity ?? 0),
+            unit: food.unit ?? "g",
+            calories: Number(food.calories ?? 0),
+          })),
+        );
+
+        const totals = (todaysFoodLogs ?? []).reduce(
+          (sum, food) => ({
+            calories: sum.calories + Number(food.calories ?? 0),
+            protein: sum.protein + Number(food.protein ?? 0),
+            carbs: sum.carbs + Number(food.carbs ?? 0),
+            fat: sum.fat + Number(food.fat ?? 0),
+            fiber: sum.fiber + Number(food.fiber ?? 0),
+          }),
+          {
+            calories: 0,
+            protein: 0,
+            carbs: 0,
+            fat: 0,
+            fiber: 0,
+          },
+        );
+
+        setNutrition(totals);
+      }
+    } catch (error) {
+      console.error("Dashboard loading failed:", error);
+      Alert.alert("Could not load dashboard", "Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -56,10 +174,7 @@ export default function HomeScreen() {
       "Delete food?",
       "Are you sure you want to remove this food entry?",
       [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
+        { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           style: "destructive",
@@ -71,12 +186,10 @@ export default function HomeScreen() {
 
             if (error) {
               console.error("Failed to delete food log:", error);
-
               Alert.alert(
                 "Delete failed",
                 "Could not delete this food entry. Please try again.",
               );
-
               return;
             }
 
@@ -86,133 +199,29 @@ export default function HomeScreen() {
       ],
     );
   };
-  const loadDashboard = async () => {
-    setLoading(true);
-
-    const user = await getCurrentUser();
-
-    if (!user) {
-      setLoading(false);
-      return;
-    }
-
-    const complete = await isProfileComplete(user.id);
-
-    if (!complete) {
-      setLoading(false);
-      router.replace("/onboarding");
-      return;
-    }
-
-    // Load latest calorie goal
-    const { data: goalData, error: goalError } = await supabase
-      .from("calorie_goals")
-      .select("daily_calories")
-      .eq("user_id", user.id)
-      .order("effective_at", {
-        ascending: false,
-      })
-      .limit(1)
-      .maybeSingle();
-
-    if (goalError) {
-      console.error("Failed to load calorie goal:", goalError);
-    } else if (goalData) {
-      setDailyCalories(Number(goalData.daily_calories));
-    }
-
-    // Get today's date in local time
-    const now = new Date();
-
-    const year = now.getFullYear();
-
-    const month = String(now.getMonth() + 1).padStart(2, "0");
-
-    const day = String(now.getDate()).padStart(2, "0");
-
-    const today = `${year}-${month}-${day}`;
-
-    // Load today's food logs
-    const { data: todaysFoodLogs, error: foodLogsError } = await supabase
-      .from("food_logs")
-      .select(
-        "id, food_name, quantity, unit, calories, protein, carbs, fat, fiber",
-      )
-      .eq("user_id", user.id)
-      .eq("log_date", today)
-      .order("created_at", {
-        ascending: false,
-      });
-
-    if (foodLogsError) {
-      console.error("Failed to load food logs:", foodLogsError);
-
-      setFoodLogs([]);
-
-      setNutrition({
-        calories: 0,
-        protein: 0,
-        carbs: 0,
-        fat: 0,
-        fiber: 0,
-      });
-    } else {
-      // Store today's food list
-      setFoodLogs(
-        (todaysFoodLogs ?? []).map((food) => ({
-          id: food.id,
-          food_name: food.food_name,
-          quantity: Number(food.quantity ?? 0),
-          unit: food.unit ?? "g",
-          calories: Number(food.calories ?? 0),
-        })),
-      );
-
-      // Calculate today's nutrition totals
-      const totals = (todaysFoodLogs ?? []).reduce(
-        (sum, food) => ({
-          calories: sum.calories + Number(food.calories ?? 0),
-
-          protein: sum.protein + Number(food.protein ?? 0),
-
-          carbs: sum.carbs + Number(food.carbs ?? 0),
-
-          fat: sum.fat + Number(food.fat ?? 0),
-
-          fiber: sum.fiber + Number(food.fiber ?? 0),
-        }),
-        {
-          calories: 0,
-          protein: 0,
-          carbs: 0,
-          fat: 0,
-          fiber: 0,
-        },
-      );
-
-      setNutrition(totals);
-    }
-
-    setLoading(false);
-  };
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" />
+        <ActivityIndicator size="large" color={ACCENT} />
+        <Text style={styles.loadingText}>Preparing your dashboard…</Text>
       </View>
     );
   }
 
   const caloriesConsumed = Math.round(nutrition.calories);
-
   const caloriesRemaining =
-    dailyCalories !== null ? Math.max(dailyCalories - caloriesConsumed, 0) : 0;
+    dailyCalories !== null
+      ? Math.max(dailyCalories - caloriesConsumed, 0)
+      : null;
 
   const progress =
     dailyCalories && dailyCalories > 0
       ? Math.min(caloriesConsumed / dailyCalories, 1)
       : 0;
+
+  const overGoal =
+    dailyCalories !== null && caloriesConsumed > dailyCalories;
 
   return (
     <View style={styles.screen}>
@@ -222,138 +231,325 @@ export default function HomeScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>Today's nutrition</Text>
-
-            <Text style={styles.title}>FunTracker</Text>
+          <View style={styles.headerText}>
+            <Text style={styles.eyebrow}>YOUR DAILY FUEL</Text>
+            <Text style={styles.title}>Let's make today count.</Text>
+            <Text style={styles.subtitle}>Today's nutrition at a glance</Text>
           </View>
 
           <Pressable
-            style={styles.profileButton}
+            style={({ pressed }) => [
+              styles.profileButton,
+              pressed && styles.pressed,
+            ]}
             onPress={() => router.push("/profile")}
             accessibilityRole="button"
             accessibilityLabel="Open profile"
           >
-            <Text style={styles.profileButtonText}>👤</Text>
+            <UserRound size={22} color={ACCENT} strokeWidth={1.8} />
           </Pressable>
         </View>
 
-        {/* Calorie Card */}
+        {/* Calories */}
         <View style={styles.calorieCard}>
-          <Text style={styles.cardLabel}>Calories</Text>
-
-          <View style={styles.calorieNumbers}>
-            <View>
-              <Text style={styles.consumedCalories}>{caloriesConsumed}</Text>
-
-              <Text style={styles.smallLabel}>consumed</Text>
+          <View style={styles.cardHeading}>
+            <View style={styles.headingIcon}>
+              <Flame size={18} color={ACCENT} />
             </View>
-
-            <Text style={styles.divider}>/</Text>
-
-            <View>
-              <Text style={styles.goalCalories}>{dailyCalories ?? "--"}</Text>
-
-              <Text style={styles.smallLabel}>goal</Text>
+            <Text style={styles.cardHeadingText}>Daily calories</Text>
+            <View style={styles.todayBadge}>
+              <Text style={styles.todayBadgeText}>TODAY</Text>
             </View>
           </View>
 
-          {/* Progress bar */}
-          <View style={styles.progressBackground}>
-            <View
-              style={[
-                styles.progressFill,
-                {
-                  width: `${progress * 100}%`,
-                },
-              ]}
-            />
+          <View style={styles.calorieContent}>
+            <CalorieRing progress={progress} overGoal={overGoal}>
+              <Text style={styles.ringPercent}>
+                {dailyCalories ? Math.round(progress * 100) : "—"}
+                {dailyCalories ? "%" : ""}
+              </Text>
+              <Text style={styles.ringCaption}>
+                {dailyCalories ? "of goal" : "set goal"}
+              </Text>
+            </CalorieRing>
+
+            <View style={styles.calorieStats}>
+              <Text style={styles.consumedCalories}>
+                {caloriesConsumed.toLocaleString("en-IN")}
+              </Text>
+              <Text style={styles.smallLabel}>kcal consumed</Text>
+
+              <View style={styles.statDivider} />
+
+              <Text style={styles.goalValue}>
+                {dailyCalories !== null
+                  ? `${dailyCalories.toLocaleString("en-IN")} kcal`
+                  : "Not set"}
+              </Text>
+              <Text style={styles.smallLabel}>daily goal</Text>
+            </View>
           </View>
 
-          <Text style={styles.remainingText}>
-            {caloriesRemaining} kcal remaining
-          </Text>
+          <View style={styles.remainingPanel}>
+            <View style={styles.remainingIcon}>
+              <Flame size={16} color={overGoal ? "#FF9A76" : ACCENT} />
+            </View>
+            <View style={styles.remainingTextContainer}>
+              <Text style={styles.remainingTitle}>
+                {dailyCalories === null
+                  ? "Set a daily calorie goal"
+                  : overGoal
+                    ? "Daily goal reached"
+                    : `${caloriesRemaining?.toLocaleString("en-IN")} kcal left`}
+              </Text>
+              <Text style={styles.remainingSubtitle}>
+                {dailyCalories === null
+                  ? "Set your target to track your progress."
+                  : overGoal
+                    ? "You've gone over your daily target."
+                    : "Keep tracking to stay on top of your goal."}
+              </Text>
+            </View>
+          </View>
         </View>
 
         {/* Macros */}
-        <Text style={styles.sectionTitle}>Today's macros</Text>
-
-        <View style={styles.macroGrid}>
-          <MacroCard label="Protein" value={nutrition.protein} unit="g" />
-
-          <MacroCard label="Carbs" value={nutrition.carbs} unit="g" />
-
-          <MacroCard label="Fat" value={nutrition.fat} unit="g" />
-
-          <MacroCard label="Fiber" value={nutrition.fiber} unit="g" />
-        </View>
-
-        {/* Add Food - Primary Action */}
-        <Pressable
-          style={styles.addFoodButton}
-          onPress={() => router.push("/add-food")}
-        >
-          <Text style={styles.addFoodIcon}>+</Text>
-
+        <View style={styles.sectionHeader}>
           <View>
-            <Text style={styles.addFoodTitle}>Add food</Text>
-
-            <Text style={styles.addFoodSubtitle}>Log what you eat today</Text>
-          </View>
-        </Pressable>
-
-                {/* AI Meal Scanner */}
-        <Pressable
-          style={styles.addFoodButton}
-          onPress={() => router.push('/scan-meal')}
-        >
-          <Text style={styles.addFoodIcon}>✨</Text>
-
-          <View>
-            <Text style={styles.addFoodTitle}>Scan meal with AI</Text>
-            <Text style={styles.addFoodSubtitle}>
-              Estimate calories from a photo
+            <Text style={styles.sectionTitle}>Your macros</Text>
+            <Text style={styles.sectionSubtitle}>
+              Nutrients logged today
             </Text>
           </View>
+          <Leaf size={20} color={ACCENT} />
+        </View>
+
+        <View style={styles.macroGrid}>
+          <MacroCard
+            label="Protein"
+            value={nutrition.protein}
+            icon={<Beef size={18} color={ACCENT} />}
+          />
+          <MacroCard
+            label="Carbs"
+            value={nutrition.carbs}
+            icon={<Wheat size={18} color={ACCENT} />}
+          />
+          <MacroCard
+            label="Fat"
+            value={nutrition.fat}
+            icon={<Droplets size={18} color={ACCENT} />}
+          />
+          <MacroCard
+            label="Fiber"
+            value={nutrition.fiber}
+            icon={<Apple size={18} color={ACCENT} />}
+          />
+        </View>
+
+        {/* Actions */}
+        <View style={styles.sectionHeader}>
+          <View>
+            <Text style={styles.sectionTitle}>Log your food</Text>
+            <Text style={styles.sectionSubtitle}>
+              Choose how you'd like to add a meal
+            </Text>
+          </View>
+        </View>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.primaryAction,
+            pressed && styles.pressed,
+          ]}
+          onPress={() => router.push("/add-food")}
+          accessibilityRole="button"
+        >
+          <View style={styles.primaryActionIcon}>
+            <Plus size={23} color={BG} strokeWidth={2.5} />
+          </View>
+          <View style={styles.actionText}>
+            <Text style={styles.primaryActionTitle}>Add food</Text>
+            <Text style={styles.primaryActionSubtitle}>
+              Search foods and enter portions
+            </Text>
+          </View>
+          <ChevronRight size={21} color={BG} />
         </Pressable>
 
-        {/* Today's Food */}
-        <Text style={styles.sectionTitle}>Today's food</Text>
+        <Pressable
+          style={({ pressed }) => [
+            styles.secondaryAction,
+            pressed && styles.pressed,
+          ]}
+          onPress={() => router.push("/scan-meal")}
+          accessibilityRole="button"
+        >
+          <View style={styles.secondaryActionIcon}>
+            <ScanLine size={22} color={ACCENT} />
+          </View>
+          <View style={styles.actionText}>
+            <Text style={styles.secondaryActionTitle}>Scan meal with AI</Text>
+            <Text style={styles.secondaryActionSubtitle}>
+              Estimate nutrition from a photo
+            </Text>
+          </View>
+          <Camera size={19} color={MUTED} />
+        </Pressable>
+
+        {/* Food log */}
+        <View style={styles.sectionHeader}>
+          <View>
+            <Text style={styles.sectionTitle}>Today's food</Text>
+            <Text style={styles.sectionSubtitle}>
+              {foodLogs.length === 1
+                ? "1 item logged"
+                : `${foodLogs.length} items logged`}
+            </Text>
+          </View>
+          <View style={styles.foodCountBadge}>
+            <Text style={styles.foodCountText}>{foodLogs.length}</Text>
+          </View>
+        </View>
 
         {foodLogs.length === 0 ? (
           <View style={styles.emptyFoodCard}>
-            <Text style={styles.emptyFoodText}>No food logged yet today.</Text>
+            <View style={styles.emptyIcon}>
+              <Apple size={24} color={ACCENT} />
+            </View>
+            <Text style={styles.emptyFoodTitle}>Nothing logged yet</Text>
+            <Text style={styles.emptyFoodText}>
+              Your meals will show up here when you add them.
+            </Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.emptyAction,
+                pressed && styles.pressed,
+              ]}
+              onPress={() => router.push("/add-food")}
+            >
+              <Text style={styles.emptyActionText}>Log your first meal</Text>
+              <ChevronRight size={16} color={ACCENT} />
+            </Pressable>
           </View>
         ) : (
           <View style={styles.foodList}>
-            {foodLogs.map((food) => (
-              <View key={food.id} style={styles.foodRow}>
-                <View style={styles.foodInfo}>
-                  <Text style={styles.foodName}>{food.food_name}</Text>
+            {foodLogs.map((food, index) => (
+              <View
+                key={food.id}
+                style={[
+                  styles.foodRow,
+                  index === foodLogs.length - 1 && styles.lastFoodRow,
+                ]}
+              >
+                <View style={styles.foodIcon}>
+                  <Apple size={19} color={ACCENT} />
+                </View>
 
+                <View style={styles.foodInfo}>
+                  <Text style={styles.foodName} numberOfLines={2}>
+                    {food.food_name}
+                  </Text>
                   <Text style={styles.foodQuantity}>
                     {food.quantity}
+                    {" "}
                     {food.unit}
                   </Text>
                 </View>
 
                 <View style={styles.foodActions}>
                   <Text style={styles.foodCalories}>
-                    {Math.round(food.calories)} kcal
+                    {Math.round(food.calories).toLocaleString("en-IN")}
                   </Text>
-
-                  <Pressable
-                    style={styles.deleteButton}
-                    onPress={() => deleteFoodLog(food.id)}
-                  >
-                    <Text style={styles.deleteButtonText}>Delete</Text>
-                  </Pressable>
+                  <Text style={styles.kcalLabel}>kcal</Text>
                 </View>
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.deleteButton,
+                    pressed && styles.pressed,
+                  ]}
+                  onPress={() => deleteFoodLog(food.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete ${food.food_name}`}
+                  hitSlop={8}
+                >
+                  <Trash2 size={17} color="#FF8585" />
+                </Pressable>
               </View>
             ))}
           </View>
         )}
+
+        <Text style={styles.footerText}>
+          Small choices. Consistent progress.
+        </Text>
       </ScrollView>
+    </View>
+  );
+}
+
+type CalorieRingProps = {
+  progress: number;
+  overGoal: boolean;
+  children: React.ReactNode;
+};
+
+function CalorieRing({
+  progress,
+  overGoal,
+  children,
+}: CalorieRingProps) {
+  const size = 142;
+  const strokeWidth = 10;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const animatedProgress = useRef(new Animated.Value(0)).current;
+  const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
+  useEffect(() => {
+    const animation = Animated.timing(animatedProgress, {
+      toValue: progress,
+      duration: 650,
+      useNativeDriver: false,
+    });
+
+    animation.start();
+
+    return () => animation.stop();
+  }, [progress, animatedProgress]);
+
+  const strokeDashoffset = animatedProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [circumference, 0],
+  });
+
+  return (
+    <View style={styles.ringContainer}>
+      <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="#343434"
+          strokeWidth={strokeWidth}
+          fill="none"
+        />
+        <AnimatedCircle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={overGoal ? "#FF9A76" : ACCENT}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          fill="none"
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          rotation="-90"
+          origin={`${size / 2}, ${size / 2}`}
+        />
+      </Svg>
+      <View style={styles.ringCenter}>{children}</View>
     </View>
   );
 }
@@ -361,19 +557,21 @@ export default function HomeScreen() {
 type MacroCardProps = {
   label: string;
   value: number;
-  unit: string;
+  icon: React.ReactNode;
 };
 
-function MacroCard({ label, value, unit }: MacroCardProps) {
+function MacroCard({ label, value, icon }: MacroCardProps) {
   return (
     <View style={styles.macroCard}>
-      <Text style={styles.macroLabel}>{label}</Text>
-
+      <View style={styles.macroCardTop}>
+        <View style={styles.macroIcon}>{icon}</View>
+        <Text style={styles.macroLabel}>{label}</Text>
+      </View>
       <Text style={styles.macroValue}>
         {Number(value).toFixed(1)}
-
-        <Text style={styles.macroUnit}> {unit}</Text>
+        <Text style={styles.macroUnit}> g</Text>
       </Text>
+      <View style={styles.macroAccent} />
     </View>
   );
 }
@@ -381,252 +579,436 @@ function MacroCard({ label, value, unit }: MacroCardProps) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: BG,
   },
-
   loadingContainer: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fff",
+    backgroundColor: BG,
   },
-
+  loadingText: {
+    color: MUTED,
+    fontSize: 13,
+    marginTop: 14,
+  },
   container: {
-    paddingTop: 64,
+    paddingTop: 62,
     paddingHorizontal: 20,
-    paddingBottom: 40,
+    paddingBottom: 44,
   },
-
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 28,
+    marginBottom: 26,
+    gap: 12,
   },
-
-  greeting: {
-    fontSize: 14,
-    color: "#777",
+  headerText: {
+    flex: 1,
   },
-
+  eyebrow: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 2,
+    color: ACCENT,
+  },
   title: {
-    marginTop: 4,
-    fontSize: 28,
-    fontWeight: "700",
-    color: "#111",
+    marginTop: 8,
+    fontSize: 27,
+    lineHeight: 33,
+    fontWeight: "800",
+    color: TEXT,
   },
-
+  subtitle: {
+    marginTop: 6,
+    fontSize: 13,
+    color: MUTED,
+  },
   profileButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#f2f2f2",
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: CARD,
+    borderWidth: 1,
+    borderColor: BORDER,
     alignItems: "center",
     justifyContent: "center",
   },
-
-  profileButtonText: {
-    fontSize: 20,
+  pressed: {
+    opacity: 0.78,
   },
-
   calorieCard: {
-    padding: 24,
-    borderRadius: 20,
-    backgroundColor: "#f5f5f5",
+    padding: 20,
+    borderRadius: 24,
+    backgroundColor: CARD,
+    borderWidth: 1,
+    borderColor: BORDER,
   },
-
-  cardLabel: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#666",
-  },
-
-  calorieNumbers: {
+  cardHeading: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 16,
+    gap: 9,
   },
-
-  consumedCalories: {
-    fontSize: 42,
+  headingIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 11,
+    backgroundColor: "#29351F",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardHeadingText: {
+    flex: 1,
+    fontSize: 15,
     fontWeight: "700",
-    color: "#111",
+    color: TEXT,
   },
-
-  goalCalories: {
-    fontSize: 28,
-    fontWeight: "600",
-    color: "#555",
+  todayBadge: {
+    backgroundColor: "#29351F",
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
   },
-
-  divider: {
-    marginHorizontal: 12,
-    fontSize: 28,
-    color: "#aaa",
+  todayBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 1,
+    color: ACCENT,
   },
-
-  smallLabel: {
+  calorieContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginTop: 22,
+    marginBottom: 20,
+  },
+  ringContainer: {
+    width: 142,
+    height: 142,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ringCenter: {
+    ...StyleSheet.absoluteFill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ringPercent: {
+    fontSize: 27,
+    fontWeight: "800",
+    color: TEXT,
+  },
+  ringCaption: {
+    fontSize: 12,
+    color: MUTED,
     marginTop: 2,
-    fontSize: 13,
-    color: "#888",
   },
-
-  progressBackground: {
-    height: 10,
-    marginTop: 24,
-    borderRadius: 5,
-    backgroundColor: "#ddd",
-    overflow: "hidden",
+  calorieStats: {
+    flex: 1,
+    alignItems: "flex-start",
+    paddingLeft: 4,
   },
-
-  progressFill: {
-    height: "100%",
-    borderRadius: 5,
-    backgroundColor: "#111",
+  consumedCalories: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: TEXT,
+    letterSpacing: -1,
   },
-
-  remainingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: "#666",
+  smallLabel: {
+    fontSize: 12,
+    color: MUTED,
+    marginTop: 3,
   },
-
-  sectionTitle: {
-    marginTop: 32,
-    marginBottom: 14,
-    fontSize: 19,
+  statDivider: {
+    width: "100%",
+    height: 1,
+    backgroundColor: BORDER,
+    marginVertical: 13,
+  },
+  goalValue: {
+    color: "#DADADA",
+    fontSize: 17,
     fontWeight: "700",
-    color: "#111",
   },
-
+  remainingPanel: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    padding: 13,
+    borderRadius: 14,
+    backgroundColor: "#22291D",
+  },
+  remainingIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    backgroundColor: "#303D26",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  remainingTextContainer: {
+    flex: 1,
+  },
+  remainingTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: TEXT,
+  },
+  remainingSubtitle: {
+    marginTop: 4,
+    fontSize: 11,
+    lineHeight: 16,
+    color: "#B7B7B7",
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 30,
+    marginBottom: 14,
+  },
+  sectionTitle: {
+    fontSize: 19,
+    fontWeight: "800",
+    color: TEXT,
+  },
+  sectionSubtitle: {
+    marginTop: 5,
+    fontSize: 12,
+    color: MUTED,
+  },
   macroGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 12,
   },
-
   macroCard: {
-    width: "48%",
-    padding: 18,
-    borderRadius: 16,
-    backgroundColor: "#f5f5f5",
+    width: "47%",
+    flexGrow: 1,
+    minHeight: 126,
+    padding: 15,
+    borderRadius: 17,
+    backgroundColor: CARD,
+    borderWidth: 1,
+    borderColor: BORDER,
   },
-
-  macroLabel: {
-    fontSize: 14,
-    color: "#777",
-  },
-
-  macroValue: {
-    marginTop: 8,
-    fontSize: 25,
-    fontWeight: "700",
-    color: "#111",
-  },
-
-  macroUnit: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#777",
-  },
-
-  addFoodButton: {
+  macroCardTop: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 28,
-    padding: 18,
-    borderRadius: 16,
-    backgroundColor: "#111",
+    gap: 8,
   },
-
-  addFoodIcon: {
-    width: 40,
-    height: 40,
-    marginRight: 14,
-    borderRadius: 20,
-    backgroundColor: "#fff",
-    textAlign: "center",
-    lineHeight: 38,
-    fontSize: 28,
-    color: "#111",
+  macroIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: "#29351F",
+    alignItems: "center",
+    justifyContent: "center",
   },
-
-  addFoodTitle: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#fff",
-  },
-
-  addFoodSubtitle: {
-    marginTop: 3,
+  macroLabel: {
     fontSize: 13,
-    color: "#ccc",
+    fontWeight: "600",
+    color: "#C5C5C5",
   },
-
+  macroValue: {
+    marginTop: 15,
+    fontSize: 25,
+    fontWeight: "800",
+    color: TEXT,
+  },
+  macroUnit: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: MUTED,
+  },
+  macroAccent: {
+    width: 28,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: ACCENT,
+    marginTop: 11,
+  },
+  primaryAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 17,
+    backgroundColor: ACCENT,
+    gap: 12,
+  },
+  primaryActionIcon: {
+    width: 43,
+    height: 43,
+    borderRadius: 14,
+    backgroundColor: "#D0FFA0",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionText: {
+    flex: 1,
+  },
+  primaryActionTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: BG,
+  },
+  primaryActionSubtitle: {
+    fontSize: 12,
+    color: "#344326",
+    marginTop: 4,
+  },
+  secondaryAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 15,
+    borderRadius: 17,
+    backgroundColor: CARD,
+    borderWidth: 1,
+    borderColor: BORDER,
+    gap: 12,
+    marginTop: 10,
+  },
+  secondaryActionIcon: {
+    width: 43,
+    height: 43,
+    borderRadius: 14,
+    backgroundColor: "#29351F",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secondaryActionTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: TEXT,
+  },
+  secondaryActionSubtitle: {
+    fontSize: 12,
+    color: MUTED,
+    marginTop: 4,
+  },
+  foodCountBadge: {
+    minWidth: 31,
+    height: 31,
+    paddingHorizontal: 8,
+    borderRadius: 16,
+    backgroundColor: "#29351F",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  foodCountText: {
+    color: ACCENT,
+    fontSize: 13,
+    fontWeight: "800",
+  },
   emptyFoodCard: {
-    backgroundColor: "#f5f5f5",
-    borderRadius: 16,
-    padding: 18,
-    marginBottom: 20,
+    alignItems: "center",
+    padding: 24,
+    borderRadius: 18,
+    backgroundColor: CARD,
+    borderWidth: 1,
+    borderColor: BORDER,
   },
-
+  emptyIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    backgroundColor: "#29351F",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 13,
+  },
+  emptyFoodTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: TEXT,
+  },
   emptyFoodText: {
-    color: "#777",
-    fontSize: 14,
+    marginTop: 7,
+    fontSize: 13,
+    color: MUTED,
+    textAlign: "center",
+    lineHeight: 19,
   },
-
+  emptyAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 17,
+    padding: 9,
+  },
+  emptyActionText: {
+    color: ACCENT,
+    fontSize: 13,
+    fontWeight: "700",
+  },
   foodList: {
-    backgroundColor: "#f5f5f5",
-    borderRadius: 16,
-    marginBottom: 20,
+    backgroundColor: CARD,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: BORDER,
     overflow: "hidden",
   },
-
   foodRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    padding: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 15,
     borderBottomWidth: 1,
-    borderBottomColor: "#e5e5e5",
+    borderBottomColor: BORDER,
+    gap: 10,
   },
-
+  lastFoodRow: {
+    borderBottomWidth: 0,
+  },
+  foodIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    backgroundColor: "#29351F",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   foodInfo: {
     flex: 1,
-    marginRight: 12,
   },
-
   foodName: {
-    fontSize: 16,
-    fontWeight: "600",
+    fontSize: 14,
+    fontWeight: "700",
+    color: TEXT,
   },
-
   foodQuantity: {
-    marginTop: 4,
-    fontSize: 13,
-    color: "#777",
+    marginTop: 5,
+    fontSize: 12,
+    color: MUTED,
   },
-
   foodActions: {
     alignItems: "flex-end",
   },
-
   foodCalories: {
-    fontSize: 15,
-    fontWeight: "600",
+    fontSize: 14,
+    fontWeight: "800",
+    color: TEXT,
   },
-
+  kcalLabel: {
+    marginTop: 3,
+    fontSize: 11,
+    color: MUTED,
+  },
   deleteButton: {
-    marginTop: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: "#eaeaea",
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    backgroundColor: "#332222",
+    alignItems: "center",
+    justifyContent: "center",
   },
-
-  deleteButtonText: {
+  footerText: {
+    marginTop: 30,
+    textAlign: "center",
     fontSize: 12,
-    fontWeight: "600",
-    color: "#666",
+    color: "#686868",
+    letterSpacing: 0.3,
   },
 });

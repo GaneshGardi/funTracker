@@ -8,7 +8,6 @@ import {
   View,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
-
 import { supabase } from "../lib/supabase";
 
 type WeeklyHistoryRow = {
@@ -26,6 +25,19 @@ type GroupWeeklyHistoryProps = {
   memberId: string;
 };
 
+const C = {
+  background: "#101010",
+  card: "#1A1A1A",
+  input: "#141414",
+  accent: "#B6F36B",
+  text: "#FFFFFF",
+  secondary: "#A0A0A0",
+  muted: "#707070",
+  border: "#303030",
+  danger: "#FF7777",
+  goal: "#D8B66A",
+};
+
 const getLocalDateString = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -35,7 +47,6 @@ const getLocalDateString = (date: Date) => {
 };
 
 const getDateLabel = (dateString: string) => {
-  // Noon avoids date shifts caused by midnight/timezone conversions.
   const date = new Date(`${dateString}T12:00:00`);
 
   return {
@@ -94,19 +105,24 @@ export default function GroupWeeklyHistory({
           p_start_date: startDate,
           p_end_date: endDate,
           p_timezone: timezone,
-        },
+        }
       );
 
       if (fetchError) throw fetchError;
 
-      // Keep only the member whose history is currently open.
       const rows = (data ?? []) as WeeklyHistoryRow[];
-      setHistory(rows.filter((row) => row.user_id === memberId));
+
+      setHistory(
+        rows
+          .filter((row) => row.user_id === memberId)
+          .slice()
+          .sort((a, b) => a.log_date.localeCompare(b.log_date))
+      );
     } catch (err) {
       console.error("Failed to load member weekly history:", err);
       setHistory([]);
       setError(
-        "Couldn't load weekly history. Pull down to refresh and try again.",
+        "Couldn't load weekly history. Refresh and try again."
       );
     } finally {
       setLoading(false);
@@ -116,18 +132,15 @@ export default function GroupWeeklyHistory({
   useFocusEffect(
     useCallback(() => {
       void loadHistory();
-    }, [loadHistory, refreshToken]),
+    }, [loadHistory, refreshToken])
   );
 
-  const selectedDays = history.sort((a, b) =>
-    a.log_date.localeCompare(b.log_date),
-  );
-
+  const selectedDays = history;
   const selectedMember = selectedDays[0];
 
   const totalCalories = selectedDays.reduce(
     (sum, day) => sum + getCalories(day.calories_consumed),
-    0,
+    0
   );
 
   const averageCalories =
@@ -138,37 +151,58 @@ export default function GroupWeeklyHistory({
     ...selectedDays.map((day) =>
       Math.max(
         getCalories(day.calories_consumed),
-        getCalories(day.daily_calorie_goal),
-      ),
-    ),
+        getCalories(day.daily_calorie_goal)
+      )
+    )
   );
+
+  const initials = selectedMember
+    ? (
+        selectedMember.display_name?.trim() ||
+        selectedMember.username ||
+        "?"
+      )
+        .charAt(0)
+        .toUpperCase()
+    : "?";
 
   return (
     <View style={styles.section}>
       <View style={styles.headingRow}>
         <View style={styles.headingText}>
+          <Text style={styles.eyebrow}>GROUP ACTIVITY</Text>
           <Text style={styles.sectionTitle}>Weekly history</Text>
-          <Text style={styles.subtitle}>Last 7 days · calories only</Text>
+          <Text style={styles.subtitle}>
+            Last 7 days · Calories only
+          </Text>
         </View>
 
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Refresh weekly history"
-          style={styles.refreshButton}
+          style={({ pressed }) => [
+            styles.refreshButton,
+            pressed && styles.pressed,
+            loading && styles.disabled,
+          ]}
           onPress={() => void loadHistory()}
           disabled={loading}
         >
+          <Text style={styles.refreshIcon}>↻</Text>
           <Text style={styles.refreshText}>Refresh</Text>
         </Pressable>
       </View>
 
       {loading ? (
         <View style={styles.statusCard}>
-          <ActivityIndicator color="#729580" />
+          <ActivityIndicator color={C.accent} size="large" />
           <Text style={styles.muted}>Loading weekly history...</Text>
         </View>
       ) : error ? (
         <View style={styles.statusCard}>
+          <View style={styles.statusIcon}>
+            <Text style={styles.statusIconText}>!</Text>
+          </View>
           <Text style={styles.errorText}>{error}</Text>
           <Pressable
             style={styles.retryButton}
@@ -179,45 +213,79 @@ export default function GroupWeeklyHistory({
         </View>
       ) : !selectedMember ? (
         <View style={styles.statusCard}>
+          <View style={styles.statusIcon}>
+            <Text style={styles.statusIconText}>↗</Text>
+          </View>
+          <Text style={styles.emptyTitle}>No history yet</Text>
           <Text style={styles.muted}>
-            No weekly history is available for this member yet.
+            Weekly calorie history will appear here when data is available
+            for this member.
           </Text>
         </View>
       ) : (
         <>
+          {/* Member overview */}
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryName}>
-              {selectedMember.display_name?.trim() ||
-                selectedMember.username}
-            </Text>
+            <View style={styles.memberRow}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{initials}</Text>
+              </View>
 
-            <Text style={styles.summaryUsername}>
-              @{selectedMember.username}
-            </Text>
+              <View style={styles.memberInfo}>
+                <Text style={styles.summaryName}>
+                  {selectedMember.display_name?.trim() ||
+                    selectedMember.username}
+                </Text>
+                <Text style={styles.summaryUsername}>
+                  @{selectedMember.username}
+                </Text>
+              </View>
+
+              <View style={styles.weekBadge}>
+                <Text style={styles.weekBadgeText}>7 DAYS</Text>
+              </View>
+            </View>
+
+            <View style={styles.divider} />
 
             <View style={styles.summaryStats}>
               <View style={styles.summaryStat}>
-                <Text style={styles.statLabel}>7-day total</Text>
-                <Text style={styles.statValue}>
-                  {Math.round(totalCalories).toLocaleString()}
-                </Text>
-                <Text style={styles.statUnit}>kcal</Text>
+                <Text style={styles.statLabel}>TOTAL CONSUMED</Text>
+                <View style={styles.statValueRow}>
+                  <Text style={styles.statValue}>
+                    {Math.round(totalCalories).toLocaleString()}
+                  </Text>
+                </View>
+                <Text style={styles.statUnit}>kcal this week</Text>
               </View>
 
               <View style={styles.statDivider} />
 
               <View style={styles.summaryStat}>
-                <Text style={styles.statLabel}>Daily average</Text>
-                <Text style={styles.statValue}>
-                  {Math.round(averageCalories).toLocaleString()}
-                </Text>
-                <Text style={styles.statUnit}>kcal/day</Text>
+                <Text style={styles.statLabel}>DAILY AVERAGE</Text>
+                <View style={styles.statValueRow}>
+                  <Text style={styles.statValue}>
+                    {Math.round(averageCalories).toLocaleString()}
+                  </Text>
+                </View>
+                <Text style={styles.statUnit}>kcal per day</Text>
               </View>
             </View>
           </View>
 
+          {/* Weekly chart */}
           <View style={styles.chartCard}>
-            <Text style={styles.chartTitle}>Daily calories</Text>
+            <View style={styles.chartHeader}>
+              <View>
+                <Text style={styles.chartTitle}>Daily calories</Text>
+                <Text style={styles.chartSubtitle}>
+                  Intake compared with daily goal
+                </Text>
+              </View>
+              <View style={styles.chartIcon}>
+                <Text style={styles.chartIconText}>▥</Text>
+              </View>
+            </View>
 
             <View style={styles.legendRow}>
               <View style={styles.legendItem}>
@@ -285,8 +353,19 @@ export default function GroupWeeklyHistory({
             </View>
           </View>
 
+          {/* Daily details */}
           <View style={styles.breakdownCard}>
-            <Text style={styles.chartTitle}>Daily breakdown</Text>
+            <View style={styles.breakdownHeader}>
+              <View>
+                <Text style={styles.chartTitle}>Daily breakdown</Text>
+                <Text style={styles.chartSubtitle}>
+                  Your friend's daily progress
+                </Text>
+              </View>
+              <Text style={styles.breakdownCount}>
+                {selectedDays.length} DAYS
+              </Text>
+            </View>
 
             {selectedDays
               .slice()
@@ -304,6 +383,8 @@ export default function GroupWeeklyHistory({
                     : null;
 
                 const labels = getDateLabel(day.log_date);
+                const metGoal =
+                  percentage !== null && percentage >= 100;
 
                 return (
                   <View key={day.log_date} style={styles.dayRow}>
@@ -336,13 +417,24 @@ export default function GroupWeeklyHistory({
                               {
                                 width: `${Math.min(percentage ?? 0, 100)}%`,
                               },
+                              metGoal && styles.dayFillMet,
                             ]}
                           />
                         </View>
 
-                        <Text style={styles.dayPercentage}>
-                          {percentage}% of goal
-                        </Text>
+                        <View style={styles.percentageRow}>
+                          <Text style={styles.dayPercentage}>
+                            {percentage}% of goal
+                          </Text>
+                          <Text
+                            style={[
+                              styles.goalStatus,
+                              metGoal && styles.goalStatusMet,
+                            ]}
+                          >
+                            {metGoal ? "Goal reached" : "In progress"}
+                          </Text>
+                        </View>
                       </>
                     )}
                   </View>
@@ -350,9 +442,12 @@ export default function GroupWeeklyHistory({
               })}
           </View>
 
-          <Text style={styles.privacyNote}>
-            Weekly totals only. Individual food logs remain private.
-          </Text>
+          <View style={styles.privacyNote}>
+            <Text style={styles.privacyIcon}>⌑</Text>
+            <Text style={styles.privacyText}>
+              Weekly calorie totals only. Individual food logs remain private.
+            </Text>
+          </View>
         </>
       )}
     </View>
@@ -367,126 +462,243 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 14,
+    marginBottom: 16,
     gap: 12,
   },
   headingText: {
     flex: 1,
   },
+  eyebrow: {
+    color: C.accent,
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 1.7,
+    marginBottom: 6,
+  },
   sectionTitle: {
-    color: "#202923",
-    fontSize: 19,
-    fontWeight: "700",
+    color: C.text,
+    fontSize: 22,
+    fontWeight: "900",
+    letterSpacing: -0.5,
   },
   subtitle: {
-    color: "#879189",
-    fontSize: 13,
-    marginTop: 4,
+    color: C.secondary,
+    fontSize: 12,
+    marginTop: 5,
   },
   refreshButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: "#EAF0EB",
-  },
-  refreshText: {
-    color: "#557361",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  statusCard: {
-    padding: 20,
+    flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 11,
+    backgroundColor: C.card,
     borderWidth: 1,
-    borderColor: "#E9EDE9",
+    borderColor: C.border,
   },
-  muted: {
-    color: "#849087",
-    fontSize: 13,
-    textAlign: "center",
-  },
-  errorText: {
-    color: "#B91C1C",
-    fontSize: 13,
-    textAlign: "center",
-    lineHeight: 19,
-  },
-  retryButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 9,
-    backgroundColor: "#EAF0EB",
-  },
-  retryText: {
-    color: "#557361",
-    fontWeight: "700",
-    fontSize: 13,
-  },
-  summaryCard: {
-    padding: 17,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#E9EDE9",
-    marginBottom: 12,
-  },
-  summaryName: {
-    color: "#202923",
+  refreshIcon: {
+    color: C.accent,
     fontSize: 17,
     fontWeight: "700",
   },
+  refreshText: {
+    color: C.text,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  pressed: {
+    opacity: 0.75,
+  },
+  disabled: {
+    opacity: 0.5,
+  },
+  statusCard: {
+    padding: 24,
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: C.card,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  muted: {
+    color: C.secondary,
+    fontSize: 12,
+    lineHeight: 19,
+    textAlign: "center",
+  },
+  errorText: {
+    color: C.danger,
+    fontSize: 12,
+    textAlign: "center",
+    lineHeight: 19,
+  },
+  statusIcon: {
+    width: 43,
+    height: 43,
+    borderRadius: 14,
+    backgroundColor: "#252C1E",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusIconText: {
+    color: C.accent,
+    fontSize: 22,
+    fontWeight: "800",
+  },
+  emptyTitle: {
+    color: C.text,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  retryButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: C.accent,
+  },
+  retryText: {
+    color: C.background,
+    fontWeight: "900",
+    fontSize: 12,
+  },
+
+  summaryCard: {
+    padding: 17,
+    backgroundColor: C.card,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: C.border,
+    marginBottom: 12,
+  },
+  memberRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: C.accent,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: {
+    color: C.background,
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  memberInfo: {
+    flex: 1,
+    marginLeft: 12,
+    marginRight: 8,
+  },
+  summaryName: {
+    color: C.text,
+    fontSize: 15,
+    fontWeight: "800",
+  },
   summaryUsername: {
-    color: "#879189",
-    fontSize: 13,
-    marginTop: 3,
+    color: C.secondary,
+    fontSize: 11,
+    marginTop: 4,
+  },
+  weekBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "#252C1E",
+    borderWidth: 1,
+    borderColor: "#39482A",
+  },
+  weekBadgeText: {
+    color: C.accent,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: C.border,
+    marginVertical: 17,
   },
   summaryStats: {
     flexDirection: "row",
-    marginTop: 18,
   },
   summaryStat: {
     flex: 1,
   },
   statLabel: {
-    color: "#879189",
-    fontSize: 12,
+    color: C.secondary,
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+  statValueRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    marginTop: 7,
   },
   statValue: {
-    color: "#202923",
-    fontSize: 23,
-    fontWeight: "700",
-    marginTop: 5,
+    color: C.text,
+    fontSize: 24,
+    fontWeight: "900",
+    letterSpacing: -0.5,
   },
   statUnit: {
-    color: "#879189",
-    fontSize: 11,
-    marginTop: 2,
+    color: C.muted,
+    fontSize: 10,
+    marginTop: 4,
   },
   statDivider: {
     width: 1,
-    backgroundColor: "#E9EDE9",
-    marginHorizontal: 18,
+    backgroundColor: C.border,
+    marginHorizontal: 15,
   },
+
   chartCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
+    backgroundColor: C.card,
+    borderRadius: 19,
     borderWidth: 1,
-    borderColor: "#E9EDE9",
-    padding: 15,
+    borderColor: C.border,
+    padding: 16,
     marginBottom: 12,
   },
+  chartHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   chartTitle: {
-    color: "#202923",
+    color: C.text,
     fontSize: 15,
-    fontWeight: "700",
+    fontWeight: "800",
+  },
+  chartSubtitle: {
+    color: C.secondary,
+    fontSize: 11,
+    marginTop: 5,
+  },
+  chartIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#252C1E",
+    borderWidth: 1,
+    borderColor: "#39482A",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chartIconText: {
+    color: C.accent,
+    fontSize: 21,
+    fontWeight: "800",
   },
   legendRow: {
     flexDirection: "row",
     gap: 16,
-    marginTop: 12,
+    marginTop: 18,
   },
   legendItem: {
     flexDirection: "row",
@@ -497,16 +709,16 @@ const styles = StyleSheet.create({
     width: 9,
     height: 9,
     borderRadius: 3,
-    backgroundColor: "#729580",
+    backgroundColor: C.accent,
   },
   legendGoalLine: {
     width: 13,
     height: 2,
-    backgroundColor: "#C18B4A",
+    backgroundColor: C.goal,
   },
   legendText: {
-    color: "#879189",
-    fontSize: 11,
+    color: C.secondary,
+    fontSize: 10,
   },
   chart: {
     flexDirection: "row",
@@ -520,10 +732,10 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   barValue: {
-    color: "#657269",
+    color: C.secondary,
     fontSize: 9,
-    fontWeight: "600",
-    marginBottom: 5,
+    fontWeight: "700",
+    marginBottom: 6,
   },
   barArea: {
     height: 106,
@@ -531,14 +743,14 @@ const styles = StyleSheet.create({
     maxWidth: 30,
     justifyContent: "flex-end",
     alignItems: "center",
-    backgroundColor: "#F5F7F4",
-    borderRadius: 5,
+    backgroundColor: C.input,
+    borderRadius: 6,
     overflow: "hidden",
     position: "relative",
   },
   bar: {
     width: "70%",
-    backgroundColor: "#729580",
+    backgroundColor: C.accent,
     borderTopLeftRadius: 4,
     borderTopRightRadius: 4,
   },
@@ -547,31 +759,46 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 2,
-    backgroundColor: "#C18B4A",
+    backgroundColor: C.goal,
     zIndex: 1,
   },
   weekdayLabel: {
-    color: "#657269",
+    color: C.text,
     fontSize: 10,
-    fontWeight: "600",
-    marginTop: 8,
+    fontWeight: "700",
+    marginTop: 9,
   },
   dateLabel: {
-    color: "#879189",
+    color: C.muted,
     fontSize: 9,
     marginTop: 3,
   },
+
   breakdownCard: {
-    padding: 16,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingTop: 17,
+    paddingBottom: 4,
+    backgroundColor: C.card,
+    borderRadius: 19,
     borderWidth: 1,
-    borderColor: "#E9EDE9",
+    borderColor: C.border,
+  },
+  breakdownHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 5,
+  },
+  breakdownCount: {
+    color: C.accent,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.7,
   },
   dayRow: {
-    paddingVertical: 14,
+    paddingVertical: 15,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#E9EDE9",
+    borderBottomColor: C.border,
   },
   dayHeader: {
     flexDirection: "row",
@@ -583,50 +810,80 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   dayName: {
-    color: "#202923",
-    fontSize: 13,
-    fontWeight: "600",
+    color: C.text,
+    fontSize: 12,
+    fontWeight: "700",
   },
   dayGoal: {
-    color: "#879189",
-    fontSize: 11,
-    marginTop: 4,
+    color: C.secondary,
+    fontSize: 10,
+    marginTop: 5,
   },
   dayTotals: {
     alignItems: "flex-end",
   },
   dayCalories: {
-    color: "#202923",
+    color: C.text,
     fontSize: 16,
-    fontWeight: "700",
+    fontWeight: "900",
   },
   dayKcal: {
-    color: "#879189",
+    color: C.secondary,
     fontSize: 10,
-    marginTop: 1,
+    marginTop: 2,
   },
   dayTrack: {
     height: 5,
     borderRadius: 5,
-    backgroundColor: "#EDF1ED",
+    backgroundColor: "#30352B",
     overflow: "hidden",
-    marginTop: 10,
+    marginTop: 12,
   },
   dayFill: {
     height: "100%",
     borderRadius: 5,
-    backgroundColor: "#729580",
+    backgroundColor: C.goal,
+  },
+  dayFillMet: {
+    backgroundColor: C.accent,
+  },
+  percentageRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 7,
   },
   dayPercentage: {
-    color: "#879189",
+    color: C.secondary,
     fontSize: 10,
-    marginTop: 5,
   },
+  goalStatus: {
+    color: C.goal,
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  goalStatusMet: {
+    color: C.accent,
+  },
+
   privacyNote: {
-    color: "#879189",
-    fontSize: 12,
-    lineHeight: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    marginTop: 15,
+    paddingHorizontal: 8,
+  },
+  privacyIcon: {
+    color: C.accent,
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  privacyText: {
+    flex: 1,
+    color: C.muted,
+    fontSize: 10,
+    lineHeight: 16,
     textAlign: "center",
-    marginTop: 14,
   },
 });

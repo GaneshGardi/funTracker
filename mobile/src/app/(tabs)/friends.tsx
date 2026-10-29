@@ -34,6 +34,18 @@ type Invitation = {
   invitation_created_at: string;
 };
 
+const C = {
+  background: "#101010",
+  card: "#1A1A1A",
+  input: "#141414",
+  accent: "#B6F36B",
+  text: "#FFFFFF",
+  secondary: "#A0A0A0",
+  muted: "#707070",
+  border: "#303030",
+  danger: "#FF7777",
+};
+
 export default function FriendsScreen() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
@@ -60,6 +72,7 @@ export default function FriendsScreen() {
       if (!user) {
         setGroups([]);
         setInvitations([]);
+        router.replace("/login");
         return;
       }
 
@@ -75,7 +88,7 @@ export default function FriendsScreen() {
       if (invitationResult.error) throw invitationResult.error;
 
       const groupIds = (membershipResult.data ?? []).map(
-        (membership) => membership.group_id,
+        (membership) => membership.group_id
       );
 
       const groupsResult =
@@ -95,18 +108,18 @@ export default function FriendsScreen() {
       console.error("Error loading Friends screen:", error);
       Alert.alert(
         "Could not load Friends",
-        error instanceof Error ? error.message : "Please try again.",
+        error instanceof Error ? error.message : "Please try again."
       );
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [router]);
 
   useFocusEffect(
     useCallback(() => {
       void loadData();
-    }, [loadData]),
+    }, [loadData])
   );
 
   const handleCreateGroup = async () => {
@@ -134,7 +147,6 @@ export default function FriendsScreen() {
 
       setGroupName("");
       setModalVisible(false);
-
       await loadData();
 
       Alert.alert("Group created!", `${name} is ready.`);
@@ -142,7 +154,7 @@ export default function FriendsScreen() {
       console.error("Error creating group:", error);
       Alert.alert(
         "Could not create group",
-        error instanceof Error ? error.message : "Please try again.",
+        error instanceof Error ? error.message : "Please try again."
       );
     } finally {
       setCreating(false);
@@ -151,7 +163,7 @@ export default function FriendsScreen() {
 
   const handleInvitationResponse = async (
     invitation: Invitation,
-    response: "accepted" | "declined",
+    response: "accepted" | "declined"
   ) => {
     setRespondingTo(invitation.invitation_id);
 
@@ -169,13 +181,13 @@ export default function FriendsScreen() {
         response === "accepted" ? "Invitation accepted!" : "Invitation declined",
         response === "accepted"
           ? `You have joined ${invitation.group_name}.`
-          : `You declined the invitation to ${invitation.group_name}.`,
+          : `You declined the invitation to ${invitation.group_name}.`
       );
     } catch (error) {
       console.error("Error responding to invitation:", error);
       Alert.alert(
         "Could not update invitation",
-        error instanceof Error ? error.message : "Please try again.",
+        error instanceof Error ? error.message : "Please try again."
       );
     } finally {
       setRespondingTo(null);
@@ -190,17 +202,16 @@ export default function FriendsScreen() {
   const renderInvitation = ({ item }: { item: Invitation }) => {
     const inviter =
       item.inviter_display_name?.trim() || item.inviter_username;
-
     const isResponding = respondingTo === item.invitation_id;
 
     return (
       <View style={styles.invitationCard}>
-        <View style={styles.invitationTop}>
+        <View style={styles.cardTopRow}>
           <View style={styles.invitationIcon}>
             <Text style={styles.invitationIconText}>✉</Text>
           </View>
 
-          <View style={styles.invitationInfo}>
+          <View style={styles.flex}>
             <Text style={styles.invitationGroupName}>{item.group_name}</Text>
             <Text style={styles.invitationDescription}>
               Invited by {inviter.startsWith("@") ? inviter : `@${inviter}`}
@@ -211,29 +222,23 @@ export default function FriendsScreen() {
           </View>
         </View>
 
-        <View style={styles.invitationActions}>
+        <View style={styles.actionsRow}>
           <Pressable
-            style={[
-              styles.acceptButton,
-              isResponding && styles.disabledButton,
-            ]}
+            style={[styles.acceptButton, respondingTo !== null && styles.disabled]}
             onPress={() => void handleInvitationResponse(item, "accepted")}
             disabled={respondingTo !== null}
             accessibilityRole="button"
             accessibilityLabel={`Accept invitation to ${item.group_name}`}
           >
             {isResponding ? (
-              <ActivityIndicator color="#FFFFFF" />
+              <ActivityIndicator color={C.background} />
             ) : (
-              <Text style={styles.acceptButtonText}>Accept</Text>
+              <Text style={styles.acceptButtonText}>Accept invitation</Text>
             )}
           </Pressable>
 
           <Pressable
-            style={[
-              styles.declineButton,
-              respondingTo !== null && styles.disabledButton,
-            ]}
+            style={[styles.declineButton, respondingTo !== null && styles.disabled]}
             onPress={() => void handleInvitationResponse(item, "declined")}
             disabled={respondingTo !== null}
             accessibilityRole="button"
@@ -248,7 +253,10 @@ export default function FriendsScreen() {
 
   const renderGroup = ({ item }: { item: Group }) => (
     <Pressable
-      style={styles.groupCard}
+      style={({ pressed }) => [
+        styles.groupCard,
+        pressed && styles.cardPressed,
+      ]}
       onPress={() =>
         router.push({
           pathname: "/group/[id]",
@@ -264,7 +272,7 @@ export default function FriendsScreen() {
         </Text>
       </View>
 
-      <View style={styles.groupInfo}>
+      <View style={styles.flex}>
         <Text style={styles.groupName}>{item.name}</Text>
         <Text style={styles.groupDate}>
           Created {new Date(item.created_at).toLocaleDateString()}
@@ -279,13 +287,18 @@ export default function FriendsScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.headerText}>
+          <Text style={styles.eyebrow}>YOUR COMMUNITY</Text>
           <Text style={styles.title}>Friends</Text>
           <Text style={styles.subtitle}>Stay accountable, together.</Text>
         </View>
 
         <Pressable
-          style={styles.createButton}
+          style={({ pressed }) => [
+            styles.createButton,
+            pressed && styles.buttonPressed,
+          ]}
           onPress={() => setModalVisible(true)}
+          accessibilityRole="button"
         >
           <Text style={styles.createButtonText}>+ Create</Text>
         </Pressable>
@@ -293,8 +306,8 @@ export default function FriendsScreen() {
 
       {loading ? (
         <View style={styles.centerContent}>
-          <ActivityIndicator size="large" color="#2563EB" />
-          <Text style={styles.loadingText}>Loading Friends...</Text>
+          <ActivityIndicator size="large" color={C.accent} />
+          <Text style={styles.loadingText}>Loading your community...</Text>
         </View>
       ) : (
         <FlatList
@@ -302,28 +315,36 @@ export default function FriendsScreen() {
           keyExtractor={(item) => item.id}
           renderItem={renderGroup}
           contentContainerStyle={styles.screenList}
+          showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
               onRefresh={handleRefresh}
-              tintColor="#2563EB"
+              tintColor={C.accent}
+              colors={[C.accent]}
+              progressBackgroundColor={C.card}
             />
           }
           ListHeaderComponent={
             <View>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>
-                  Incoming invitations
-                </Text>
-                <Text style={styles.groupCount}>{invitations.length}</Text>
+                <Text style={styles.sectionTitle}>Incoming invitations</Text>
+                <View style={styles.countBadge}>
+                  <Text style={styles.countText}>{invitations.length}</Text>
+                </View>
               </View>
 
               {invitations.length === 0 ? (
                 <View style={styles.noInvitations}>
-                  <Text style={styles.noInvitationsText}>
-                    No pending invitations. When a friend invites you to a
-                    group, it will appear here.
-                  </Text>
+                  <Text style={styles.noInvitationsIcon}>✉</Text>
+                  <View style={styles.flex}>
+                    <Text style={styles.noInvitationsTitle}>
+                      All caught up
+                    </Text>
+                    <Text style={styles.noInvitationsText}>
+                      New group invitations will show up here.
+                    </Text>
+                  </View>
                 </View>
               ) : (
                 <View style={styles.invitationList}>
@@ -337,7 +358,9 @@ export default function FriendsScreen() {
 
               <View style={[styles.sectionHeader, styles.groupsHeader]}>
                 <Text style={styles.sectionTitle}>Your groups</Text>
-                <Text style={styles.groupCount}>{groups.length}</Text>
+                <View style={styles.countBadge}>
+                  <Text style={styles.countText}>{groups.length}</Text>
+                </View>
               </View>
             </View>
           }
@@ -346,20 +369,16 @@ export default function FriendsScreen() {
               <View style={styles.emptyIcon}>
                 <Text style={styles.emptyIconText}>+</Text>
               </View>
-
-              <Text style={styles.emptyTitle}>No groups yet</Text>
-
+              <Text style={styles.emptyTitle}>Your circle starts here</Text>
               <Text style={styles.emptyDescription}>
-                Create a group to start tracking your progress with friends.
+                Create a group and invite friends to keep each other
+                accountable on your fitness journey.
               </Text>
-
               <Pressable
                 style={styles.emptyButton}
                 onPress={() => setModalVisible(true)}
               >
-                <Text style={styles.emptyButtonText}>
-                  Create your first group
-                </Text>
+                <Text style={styles.emptyButtonText}>Create your first group</Text>
               </Pressable>
             </View>
           }
@@ -388,19 +407,18 @@ export default function FriendsScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHandle} />
 
+            <Text style={styles.modalEyebrow}>BUILD YOUR CIRCLE</Text>
             <Text style={styles.modalTitle}>Create a group</Text>
-
             <Text style={styles.modalDescription}>
-              Give your group a name. You’ll be its owner and can invite friends
-              next.
+              Give your group a name. You’ll be its owner and can invite
+              friends next.
             </Text>
 
             <Text style={styles.inputLabel}>GROUP NAME</Text>
-
             <TextInput
               style={styles.input}
               placeholder="e.g. Fitness buddies"
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor={C.muted}
               value={groupName}
               onChangeText={setGroupName}
               maxLength={50}
@@ -415,12 +433,12 @@ export default function FriendsScreen() {
             <Text style={styles.characterCount}>{groupName.length}/50</Text>
 
             <Pressable
-              style={[styles.submitButton, creating && styles.disabledButton]}
+              style={[styles.submitButton, creating && styles.disabled]}
               onPress={() => void handleCreateGroup()}
               disabled={creating}
             >
               {creating ? (
-                <ActivityIndicator color="#FFFFFF" />
+                <ActivityIndicator color={C.background} />
               ) : (
                 <Text style={styles.submitButtonText}>Create group</Text>
               )}
@@ -443,8 +461,11 @@ export default function FriendsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: C.background,
     paddingTop: 58,
+  },
+  flex: {
+    flex: 1,
   },
   header: {
     paddingHorizontal: 22,
@@ -457,69 +478,84 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingRight: 12,
   },
-  title: {
-    fontSize: 30,
+  eyebrow: {
+    color: C.accent,
+    fontSize: 10,
     fontWeight: "800",
-    color: "#111827",
-    letterSpacing: -0.7,
+    letterSpacing: 2,
+    marginBottom: 7,
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: "900",
+    color: C.text,
+    letterSpacing: -0.8,
   },
   subtitle: {
     marginTop: 5,
-    fontSize: 14,
-    color: "#6B7280",
+    fontSize: 13,
+    color: C.secondary,
   },
   createButton: {
-    backgroundColor: "#2563EB",
-    paddingHorizontal: 17,
+    backgroundColor: C.accent,
+    paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 13,
   },
   createButtonText: {
-    color: "#FFFFFF",
-    fontWeight: "700",
-    fontSize: 14,
+    color: C.background,
+    fontWeight: "900",
+    fontSize: 13,
+  },
+  buttonPressed: {
+    opacity: 0.8,
   },
   sectionHeader: {
-    paddingHorizontal: 22,
     marginBottom: 12,
     flexDirection: "row",
     alignItems: "center",
     gap: 9,
   },
   sectionTitle: {
-    color: "#111827",
-    fontSize: 18,
-    fontWeight: "700",
+    color: C.text,
+    fontSize: 17,
+    fontWeight: "800",
   },
-  groupCount: {
-    overflow: "hidden",
+  countBadge: {
+    minWidth: 25,
+    alignItems: "center",
     borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    backgroundColor: "#E5E7EB",
-    color: "#4B5563",
-    fontSize: 12,
-    fontWeight: "700",
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    backgroundColor: "#252C1E",
+    borderWidth: 1,
+    borderColor: "#39482A",
+  },
+  countText: {
+    color: C.accent,
+    fontSize: 11,
+    fontWeight: "800",
   },
   groupsHeader: {
-    marginTop: 24,
+    marginTop: 26,
   },
   screenList: {
     paddingHorizontal: 18,
-    paddingBottom: 30,
+    paddingBottom: 32,
     flexGrow: 1,
   },
   invitationList: {
-    gap: 10,
+    gap: 11,
   },
   invitationCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: C.card,
     padding: 15,
-    borderRadius: 17,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#DBEAFE",
+    borderColor: C.border,
+    marginBottom: 10,
   },
-  invitationTop: {
+  cardTopRow: {
     flexDirection: "row",
     alignItems: "center",
   },
@@ -527,37 +563,36 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 15,
-    backgroundColor: "#DBEAFE",
+    backgroundColor: "#252C1E",
+    borderWidth: 1,
+    borderColor: "#39482A",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
   },
   invitationIconText: {
-    color: "#1D4ED8",
+    color: C.accent,
     fontSize: 21,
     fontWeight: "800",
   },
-  invitationInfo: {
-    flex: 1,
-  },
   invitationGroupName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "800",
-    color: "#111827",
+    color: C.text,
   },
   invitationDescription: {
-    fontSize: 13,
-    color: "#4B5563",
-    marginTop: 4,
+    fontSize: 12,
+    color: C.secondary,
+    marginTop: 5,
   },
   invitationDate: {
-    fontSize: 11,
-    color: "#9CA3AF",
-    marginTop: 4,
+    fontSize: 10,
+    color: C.muted,
+    marginTop: 5,
   },
-  invitationActions: {
+  actionsRow: {
     flexDirection: "row",
-    gap: 10,
+    gap: 9,
     marginTop: 15,
   },
   acceptButton: {
@@ -565,87 +600,100 @@ const styles = StyleSheet.create({
     minHeight: 43,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#2563EB",
+    backgroundColor: C.accent,
     borderRadius: 11,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
   },
   acceptButtonText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "800",
+    color: C.background,
+    fontSize: 12,
+    fontWeight: "900",
   },
   declineButton: {
-    flex: 1,
     minHeight: 43,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: C.input,
     borderRadius: 11,
     borderWidth: 1,
-    borderColor: "#D1D5DB",
-    paddingHorizontal: 12,
+    borderColor: C.border,
+    paddingHorizontal: 16,
   },
   declineButtonText: {
-    color: "#4B5563",
-    fontSize: 14,
+    color: C.secondary,
+    fontSize: 12,
     fontWeight: "700",
   },
-  disabledButton: {
-    opacity: 0.65,
+  disabled: {
+    opacity: 0.55,
   },
   noInvitations: {
-    marginHorizontal: 2,
-    padding: 15,
-    borderRadius: 14,
-    backgroundColor: "#FFFFFF",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 13,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: C.card,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: C.border,
+  },
+  noInvitationsIcon: {
+    color: C.accent,
+    fontSize: 24,
+  },
+  noInvitationsTitle: {
+    color: C.text,
+    fontSize: 13,
+    fontWeight: "800",
+    marginBottom: 4,
   },
   noInvitationsText: {
-    color: "#6B7280",
-    fontSize: 13,
-    lineHeight: 20,
+    color: C.secondary,
+    fontSize: 12,
+    lineHeight: 18,
   },
   groupCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: C.card,
     padding: 15,
-    marginBottom: 12,
+    marginBottom: 11,
     borderRadius: 17,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: C.border,
+  },
+  cardPressed: {
+    opacity: 0.75,
   },
   groupIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 15,
-    backgroundColor: "#DBEAFE",
+    width: 49,
+    height: 49,
+    borderRadius: 16,
+    backgroundColor: "#252C1E",
+    borderWidth: 1,
+    borderColor: "#39482A",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 13,
   },
   groupIconText: {
-    color: "#1D4ED8",
+    color: C.accent,
     fontSize: 20,
-    fontWeight: "800",
-  },
-  groupInfo: {
-    flex: 1,
+    fontWeight: "900",
   },
   groupName: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#111827",
+    fontSize: 15,
+    fontWeight: "800",
+    color: C.text,
   },
   groupDate: {
-    fontSize: 12,
-    color: "#6B7280",
+    fontSize: 11,
+    color: C.secondary,
     marginTop: 5,
   },
   groupArrow: {
-    fontSize: 27,
-    color: "#9CA3AF",
+    fontSize: 26,
+    color: C.accent,
     paddingLeft: 8,
   },
   centerContent: {
@@ -655,52 +703,55 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 12,
-    color: "#6B7280",
-    fontSize: 14,
+    color: C.secondary,
+    fontSize: 13,
   },
   emptyState: {
     alignItems: "center",
-    paddingHorizontal: 10,
-    paddingTop: 30,
+    paddingHorizontal: 12,
+    paddingTop: 28,
     paddingBottom: 30,
   },
   emptyIcon: {
     width: 66,
     height: 66,
     borderRadius: 22,
-    backgroundColor: "#DBEAFE",
+    backgroundColor: "#252C1E",
+    borderWidth: 1,
+    borderColor: "#39482A",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 18,
   },
   emptyIconText: {
-    color: "#2563EB",
+    color: C.accent,
     fontSize: 34,
     fontWeight: "400",
   },
   emptyTitle: {
-    color: "#111827",
+    color: C.text,
     fontSize: 19,
-    fontWeight: "800",
+    fontWeight: "900",
+    textAlign: "center",
   },
   emptyDescription: {
-    color: "#6B7280",
-    fontSize: 14,
-    lineHeight: 21,
+    color: C.secondary,
+    fontSize: 13,
+    lineHeight: 20,
     textAlign: "center",
-    marginTop: 8,
+    marginTop: 9,
     marginBottom: 20,
   },
   emptyButton: {
-    backgroundColor: "#2563EB",
+    backgroundColor: C.accent,
     borderRadius: 12,
     paddingHorizontal: 18,
     paddingVertical: 13,
   },
   emptyButtonText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
+    color: C.background,
+    fontSize: 13,
+    fontWeight: "900",
   },
   modalOverlay: {
     flex: 1,
@@ -708,57 +759,66 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(15, 23, 42, 0.48)",
+    backgroundColor: "rgba(0, 0, 0, 0.72)",
   },
   modalContent: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: C.card,
     paddingHorizontal: 24,
     paddingTop: 12,
     paddingBottom: Platform.OS === "ios" ? 34 : 24,
     borderTopLeftRadius: 26,
     borderTopRightRadius: 26,
+    borderWidth: 1,
+    borderColor: C.border,
   },
   modalHandle: {
     width: 42,
     height: 5,
     borderRadius: 3,
-    backgroundColor: "#D1D5DB",
+    backgroundColor: "#484848",
     alignSelf: "center",
     marginBottom: 22,
   },
-  modalTitle: {
-    color: "#111827",
-    fontSize: 24,
+  modalEyebrow: {
+    color: C.accent,
+    fontSize: 10,
     fontWeight: "800",
+    letterSpacing: 1.7,
+    marginBottom: 7,
+  },
+  modalTitle: {
+    color: C.text,
+    fontSize: 24,
+    fontWeight: "900",
   },
   modalDescription: {
-    color: "#6B7280",
-    fontSize: 14,
-    lineHeight: 21,
+    color: C.secondary,
+    fontSize: 13,
+    lineHeight: 20,
     marginTop: 8,
     marginBottom: 24,
   },
   inputLabel: {
-    color: "#374151",
-    fontSize: 11,
+    color: C.secondary,
+    fontSize: 10,
     fontWeight: "800",
-    letterSpacing: 1,
-    marginBottom: 8,
+    letterSpacing: 1.2,
+    marginBottom: 9,
   },
   input: {
     height: 52,
     paddingHorizontal: 15,
     borderWidth: 1,
-    borderColor: "#D1D5DB",
+    borderColor: C.border,
     borderRadius: 12,
-    fontSize: 15,
-    color: "#111827",
-    backgroundColor: "#FFFFFF",
+    fontSize: 14,
+    color: C.text,
+    backgroundColor: C.input,
   },
   characterCount: {
     alignSelf: "flex-end",
-    color: "#9CA3AF",
-    fontSize: 12,
+    color: C.muted,
+    fontSize: 11,
     marginTop: 7,
   },
   submitButton: {
@@ -766,14 +826,14 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#2563EB",
+    backgroundColor: C.accent,
     marginTop: 18,
   },
   submitButtonText: {
-  color: "#FFFFFF",
-  fontSize: 15,
-  fontWeight: "800",
-},
+    color: C.background,
+    fontSize: 14,
+    fontWeight: "900",
+  },
   cancelButton: {
     height: 46,
     alignItems: "center",
@@ -781,8 +841,8 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   cancelButtonText: {
-    color: "#6B7280",
-    fontSize: 14,
+    color: C.secondary,
+    fontSize: 13,
     fontWeight: "700",
   },
 });

@@ -1,6 +1,9 @@
+
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,6 +12,21 @@ import {
   View,
 } from 'react-native';
 import { router } from 'expo-router';
+import {
+  ArrowLeft,
+  Search,
+  Utensils,
+  Scale,
+  Flame,
+  Beef,
+  Wheat,
+  Droplets,
+  Leaf,
+  CheckCircle2,
+  ChevronRight,
+  Plus,
+  X,
+} from 'lucide-react-native';
 
 import { supabase } from '@/lib/supabase';
 import {
@@ -52,19 +70,29 @@ type CalculationResult = {
   };
 };
 
+const C = {
+  bg: '#101010',
+  card: '#1A1A1A',
+  cardAlt: '#202020',
+  accent: '#B6F36B',
+  text: '#F5F5F5',
+  muted: '#969696',
+  border: '#303030',
+  danger: '#FF7777',
+};
+
 export default function AddFoodScreen() {
   const [search, setSearch] = useState('');
   const [quantity, setQuantity] = useState('');
   const [foods, setFoods] = useState<FoodSearchResult[]>([]);
   const [selectedFood, setSelectedFood] =
     useState<SelectedFood | null>(null);
-
-
   const [calculation, setCalculation] =
     useState<CalculationResult | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
 
   async function searchFoods() {
     const query = search.trim();
@@ -72,41 +100,64 @@ export default function AddFoodScreen() {
     if (!query) {
       Alert.alert(
         'Enter a food',
-        'Type something like chicken, rice, or oats.'
+        'Try chicken, rice, oats, or another food.'
       );
       return;
     }
 
+    Keyboard.dismiss();
     setLoading(true);
+    setHasSearched(false);
     setFoods([]);
     setSelectedFood(null);
     setCalculation(null);
+    setQuantity('');
 
     try {
       const { data, error } =
-        await supabase.functions.invoke(
-          'search-food',
-          {
-            body: {
-              query,
-            },
-          }
-        );
+        await supabase.functions.invoke('search-food', {
+          body: { query },
+        });
 
       if (error) {
         throw new Error(error.message);
       }
 
       setFoods(data?.foods ?? []);
+      setHasSearched(true);
     } catch (error) {
-      console.error(
-        'Food search failed:',
-        error
-      );
-
+      console.error('Food search failed:', error);
       Alert.alert(
         'Search failed',
-        'Could not search for food right now.'
+        'Could not search for food right now. Please try again.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function selectFood(food: FoodSearchResult) {
+    Keyboard.dismiss();
+    setLoading(true);
+    setCalculation(null);
+
+    try {
+      const savedFood = await saveFood(food.fdcId);
+
+      setSelectedFood({
+        id: savedFood.id,
+        name: savedFood.name,
+        source: savedFood.source ?? null,
+      });
+
+      setQuantity('');
+      setFoods([]);
+      setHasSearched(false);
+    } catch (error) {
+      console.error('Saving food reference failed:', error);
+      Alert.alert(
+        'Could not select food',
+        'This food could not be added to the food database.'
       );
     } finally {
       setLoading(false);
@@ -115,19 +166,13 @@ export default function AddFoodScreen() {
 
   async function calculateSelectedFood() {
     if (!selectedFood) {
-      Alert.alert(
-        'Select a food',
-        'Choose a food from the search results first.'
-      );
+      Alert.alert('Select a food', 'Choose a food first.');
       return;
     }
 
     const quantityG = Number(quantity);
 
-    if (
-      !Number.isFinite(quantityG) ||
-      quantityG <= 0
-    ) {
+    if (!Number.isFinite(quantityG) || quantityG <= 0) {
       Alert.alert(
         'Invalid quantity',
         'Enter a quantity greater than 0 grams.'
@@ -135,6 +180,15 @@ export default function AddFoodScreen() {
       return;
     }
 
+    if (quantityG > 100000) {
+      Alert.alert(
+        'Quantity too large',
+        'Please enter a quantity of 100,000 grams or less.'
+      );
+      return;
+    }
+
+    Keyboard.dismiss();
     setLoading(true);
     setCalculation(null);
 
@@ -143,17 +197,12 @@ export default function AddFoodScreen() {
         selectedFood.id,
         quantityG
       );
-
       setCalculation(result);
     } catch (error) {
-      console.error(
-        'Food calculation failed:',
-        error
-      );
-
+      console.error('Food calculation failed:', error);
       Alert.alert(
         'Calculation failed',
-        'Could not calculate the nutrition.'
+        'Could not calculate nutrition. Please try again.'
       );
     } finally {
       setLoading(false);
@@ -161,16 +210,19 @@ export default function AddFoodScreen() {
   }
 
   async function confirmAndAdd() {
-    if (!selectedFood || !calculation) {
+    if (!selectedFood || !calculation || saving) {
       return;
     }
 
     setSaving(true);
 
     try {
-      const today = new Date()
-        .toISOString()
-        .slice(0, 10);
+      const now = new Date();
+      const today = [
+        now.getFullYear(),
+        String(now.getMonth() + 1).padStart(2, '0'),
+        String(now.getDate()).padStart(2, '0'),
+      ].join('-');
 
       await logFood(
         selectedFood.id,
@@ -179,244 +231,381 @@ export default function AddFoodScreen() {
       );
 
       Alert.alert(
-        'Food added',
+        'Food added!',
         `${selectedFood.name} has been added to today's log.`,
         [
           {
-            text: 'OK',
+            text: 'Done',
             onPress: () => router.back(),
           },
         ]
       );
     } catch (error) {
-      console.error(
-        'Food logging failed:',
-        error
-      );
-
+      console.error('Food logging failed:', error);
       Alert.alert(
         'Could not save',
-        'The food could not be added.'
+        'Your food could not be added. Please try again.'
       );
     } finally {
       setSaving(false);
     }
   }
 
+  function resetSelection() {
+    setSelectedFood(null);
+    setCalculation(null);
+    setQuantity('');
+  }
+
   return (
     <ScrollView
+      style={styles.screen}
       contentContainerStyle={styles.container}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
     >
-      <Text style={styles.title}>
-        Add Food
-      </Text>
+      <View style={styles.header}>
+        <Pressable
+          onPress={() => router.back()}
+          style={styles.iconButton}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <ArrowLeft size={21} color={C.text} />
+        </Pressable>
 
-      <Text style={styles.subtitle}>
-        Search for a food and enter the amount in grams.
-      </Text>
+        <View style={styles.headerTitleWrap}>
+          <Text style={styles.headerEyebrow}>FOOD JOURNAL</Text>
+          <Text style={styles.headerTitle}>Add food</Text>
+        </View>
 
-      <View style={styles.searchRow}>
-        <TextInput
-          value={search}
-          onChangeText={setSearch}
-          placeholder="e.g. chicken breast"
-          style={styles.input}
-          onSubmitEditing={searchFoods}
-          returnKeyType="search"
-        />
+        <View style={styles.headerIcon}>
+          <Utensils size={20} color={C.accent} />
+        </View>
+      </View>
+
+      <View style={styles.intro}>
+        <Text style={styles.title}>
+          Fuel your <Text style={styles.accentText}>goals.</Text>
+        </Text>
+        <Text style={styles.subtitle}>
+          Find your food, set the portion, and track its nutrition.
+        </Text>
+      </View>
+
+      <View style={styles.sectionHeading}>
+        <View style={styles.stepBadge}>
+          <Text style={styles.stepNumber}>01</Text>
+        </View>
+        <View style={styles.sectionHeadingText}>
+          <Text style={styles.sectionTitle}>Find your food</Text>
+          <Text style={styles.sectionSubtitle}>
+            Search a food database
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.searchCard}>
+        <View style={styles.searchInputWrap}>
+          <Search size={19} color={C.muted} />
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="e.g. chicken breast"
+            placeholderTextColor="#777777"
+            style={styles.searchInput}
+            onSubmitEditing={searchFoods}
+            returnKeyType="search"
+            editable={!loading && !saving}
+            accessibilityLabel="Search for a food"
+          />
+          {search.length > 0 && (
+            <Pressable
+              onPress={() => setSearch('')}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+              hitSlop={8}
+            >
+              <X size={17} color={C.muted} />
+            </Pressable>
+          )}
+        </View>
 
         <Pressable
           style={[
-            styles.searchButton,
+            styles.primaryButton,
             loading && styles.disabledButton,
           ]}
           onPress={searchFoods}
-          disabled={loading}
+          disabled={loading || saving}
         >
-          <Text style={styles.buttonText}>
-            {loading ? '...' : 'Search'}
-          </Text>
+          {loading ? (
+            <ActivityIndicator color={C.bg} />
+          ) : (
+            <>
+              <Search size={18} color={C.bg} />
+              <Text style={styles.primaryButtonText}>Search foods</Text>
+            </>
+          )}
         </Pressable>
       </View>
 
-      {foods.length > 0 && (
-        <View style={styles.results}>
-          <Text style={styles.sectionTitle}>
-            Search results
+      {loading && (
+        <View style={styles.loadingRow}>
+          <ActivityIndicator color={C.accent} size="small" />
+          <Text style={styles.mutedText}>
+            Finding your food...
           </Text>
+        </View>
+      )}
+
+      {foods.length > 0 && (
+        <View style={styles.resultsSection}>
+          <View style={styles.resultsHeader}>
+            <Text style={styles.sectionTitle}>Search results</Text>
+            <Text style={styles.resultCount}>
+              {foods.length} found
+            </Text>
+          </View>
 
           {foods.map((food) => (
             <Pressable
               key={food.fdcId}
-              style={styles.foodItem}
-              onPress={async () => {
-                try {
-                  setLoading(true);
-                  setCalculation(null);
-
-                  const savedFood =
-  await saveFood(food.fdcId);
-
-setSelectedFood({
-  id: savedFood.id,
-  name: savedFood.name,
-  source: savedFood.source ?? null,
-});
-
-setFoods([]);
-                } catch (error) {
-                  console.error(
-                    'Saving food reference failed:',
-                    error
-                  );
-
-                  Alert.alert(
-                    'Could not select food',
-                    'This food could not be added to the food database.'
-                  );
-                } finally {
-                  setLoading(false);
-                }
-              }}
+              style={styles.foodResult}
+              onPress={() => selectFood(food)}
+              disabled={loading || saving}
             >
-              <Text style={styles.foodName}>
-                {food.name}
-              </Text>
+              <View style={styles.foodResultIcon}>
+                <Utensils size={19} color={C.accent} />
+              </View>
 
-              {food.brand ? (
-                <Text style={styles.source}>
-                  {food.brand}
-                </Text>
-              ) : null}
+              <View style={styles.foodResultInfo}>
+                <Text style={styles.foodName}>{food.name}</Text>
+                {!!food.brand && (
+                  <Text style={styles.source}>{food.brand}</Text>
+                )}
+                {!!food.dataType && (
+                  <Text style={styles.source}>{food.dataType}</Text>
+                )}
+              </View>
 
-              {food.dataType ? (
-                <Text style={styles.source}>
-                  {food.dataType}
-                </Text>
-              ) : null}
+              <ChevronRight size={19} color={C.muted} />
             </Pressable>
           ))}
         </View>
       )}
 
-      {selectedFood && (
-        <View style={styles.selectedSection}>
-          <Text style={styles.sectionTitle}>
-            Selected food
+      {hasSearched && foods.length === 0 && !loading && (
+        <View style={styles.emptyCard}>
+          <Search size={25} color={C.muted} />
+          <Text style={styles.emptyTitle}>No foods found</Text>
+          <Text style={styles.mutedText}>
+            Try a different name, such as cooked rice or raw oats.
           </Text>
+        </View>
+      )}
 
-          <View style={styles.selectedFoodCard}>
-            <Text style={styles.selectedName}>
-              {selectedFood.name}
-            </Text>
-
-            <Text style={styles.selectedHint}>
-              Enter the amount you want to eat.
-            </Text>
+      {selectedFood && (
+        <>
+          <View style={styles.sectionHeading}>
+            <View style={styles.stepBadge}>
+              <Text style={styles.stepNumber}>02</Text>
+            </View>
+            <View style={styles.sectionHeadingText}>
+              <Text style={styles.sectionTitle}>Set your portion</Text>
+              <Text style={styles.sectionSubtitle}>
+                Nutrition is calculated by weight
+              </Text>
+            </View>
           </View>
 
-          <TextInput
-            value={quantity}
-            onChangeText={setQuantity}
-            placeholder="Quantity in grams"
-            keyboardType="decimal-pad"
-            style={styles.quantityInput}
-          />
+          <View style={styles.selectedCard}>
+            <View style={styles.selectedTop}>
+              <View style={styles.selectedIcon}>
+                <CheckCircle2 size={21} color={C.accent} />
+              </View>
+              <View style={styles.selectedInfo}>
+                <Text style={styles.selectedLabel}>SELECTED FOOD</Text>
+                <Text style={styles.selectedName}>
+                  {selectedFood.name}
+                </Text>
+                {!!selectedFood.source && (
+                  <Text style={styles.source}>
+                    {selectedFood.source}
+                  </Text>
+                )}
+              </View>
+              <Pressable
+                onPress={resetSelection}
+                style={styles.smallIconButton}
+                accessibilityRole="button"
+                accessibilityLabel="Change selected food"
+              >
+                <X size={17} color={C.muted} />
+              </Pressable>
+            </View>
 
-          <Pressable
-            style={[
-              styles.calculateButton,
-              loading && styles.disabledButton,
-            ]}
-            onPress={calculateSelectedFood}
-            disabled={loading}
-          >
-            <Text style={styles.buttonText}>
-              {loading
-                ? 'Calculating...'
-                : 'Calculate Nutrition'}
-            </Text>
-          </Pressable>
-        </View>
+            <View style={styles.divider} />
+
+            <Text style={styles.inputLabel}>PORTION SIZE</Text>
+            <View style={styles.quantityRow}>
+              <Scale size={20} color={C.muted} />
+              <TextInput
+                value={quantity}
+                onChangeText={(value) => {
+                  setQuantity(value);
+                  setCalculation(null);
+                }}
+                placeholder="Enter quantity"
+                placeholderTextColor="#777777"
+                keyboardType="decimal-pad"
+                style={styles.quantityInput}
+                accessibilityLabel="Quantity in grams"
+                editable={!loading && !saving}
+              />
+              <View style={styles.gramBadge}>
+                <Text style={styles.gramText}>GRAMS</Text>
+              </View>
+            </View>
+
+            <Pressable
+              style={[
+                styles.primaryButton,
+                loading && styles.disabledButton,
+              ]}
+              onPress={calculateSelectedFood}
+              disabled={loading || saving}
+            >
+              {loading ? (
+                <ActivityIndicator color={C.bg} />
+              ) : (
+                <>
+                  <Flame size={18} color={C.bg} />
+                  <Text style={styles.primaryButtonText}>
+                    Calculate nutrition
+                  </Text>
+                </>
+              )}
+            </Pressable>
+          </View>
+        </>
       )}
 
       {calculation && (
-        <View style={styles.preview}>
-          <Text style={styles.sectionTitle}>
-            Nutrition preview
-          </Text>
-
-          <Text style={styles.previewFood}>
-            {calculation.food.name}
-          </Text>
-
-          <Text style={styles.quantityText}>
-            {calculation.quantity_g} g
-          </Text>
-
-          <View style={styles.macroRow}>
-            <Macro
-              label="Calories"
-              value={calculation.nutrition.calories}
-              suffix=" kcal"
-            />
-
-            <Macro
-              label="Protein"
-              value={calculation.nutrition.protein}
-              suffix=" g"
-            />
-
-            <Macro
-              label="Carbs"
-              value={calculation.nutrition.carbs}
-              suffix=" g"
-            />
-
-            <Macro
-              label="Fat"
-              value={calculation.nutrition.fat}
-              suffix=" g"
-            />
-
-            <Macro
-              label="Fiber"
-              value={calculation.nutrition.fiber}
-              suffix=" g"
-            />
+        <>
+          <View style={styles.sectionHeading}>
+            <View style={styles.stepBadge}>
+              <Text style={styles.stepNumber}>03</Text>
+            </View>
+            <View style={styles.sectionHeadingText}>
+              <Text style={styles.sectionTitle}>Nutrition preview</Text>
+              <Text style={styles.sectionSubtitle}>
+                Review before adding to your log
+              </Text>
+            </View>
           </View>
 
-          <Text style={styles.confirmText}>
-            Check the estimate before adding it.
-          </Text>
+          <View style={styles.nutritionCard}>
+            <View style={styles.caloriePanel}>
+              <View style={styles.calorieIcon}>
+                <Flame size={21} color={C.accent} />
+              </View>
+              <Text style={styles.calorieLabel}>TOTAL CALORIES</Text>
+              <View style={styles.calorieValueRow}>
+                <Text style={styles.calorieValue}>
+                  {calculation.nutrition.calories === null
+                    ? '—'
+                    : Math.round(calculation.nutrition.calories)}
+                </Text>
+                <Text style={styles.calorieUnit}>kcal</Text>
+              </View>
+              <Text style={styles.calorieFootnote}>
+                {calculation.quantity_g} g serving
+              </Text>
+            </View>
 
-          <Pressable
-            style={[
-              styles.confirmButton,
-              saving && styles.disabledButton,
-            ]}
-            onPress={confirmAndAdd}
-            disabled={saving}
-          >
-            <Text style={styles.buttonText}>
-              {saving
-                ? 'Adding...'
-                : 'Confirm & Add'}
-            </Text>
-          </Pressable>
-        </View>
+            <View style={styles.macroGrid}>
+              <Macro
+                label="Protein"
+                value={calculation.nutrition.protein}
+                suffix="g"
+                icon={<Beef size={17} color={C.accent} />}
+              />
+              <Macro
+                label="Carbs"
+                value={calculation.nutrition.carbs}
+                suffix="g"
+                icon={<Wheat size={17} color="#E8C477" />}
+              />
+              <Macro
+                label="Fat"
+                value={calculation.nutrition.fat}
+                suffix="g"
+                icon={<Droplets size={17} color="#8BCBFF" />}
+              />
+              <Macro
+                label="Fiber"
+                value={calculation.nutrition.fiber}
+                suffix="g"
+                icon={<Leaf size={17} color="#9EE0B0" />}
+              />
+            </View>
+
+            <View style={styles.notice}>
+              <Text style={styles.noticeText}>
+                Nutrition values are estimates. Actual values can vary
+                with ingredients and preparation.
+              </Text>
+            </View>
+
+            <Pressable
+              style={[
+                styles.primaryButton,
+                saving && styles.disabledButton,
+              ]}
+              onPress={confirmAndAdd}
+              disabled={saving || loading}
+            >
+              {saving ? (
+                <ActivityIndicator color={C.bg} />
+              ) : (
+                <>
+                  <Plus size={19} color={C.bg} />
+                  <Text style={styles.primaryButtonText}>
+                    Confirm & add food
+                  </Text>
+                </>
+              )}
+            </Pressable>
+
+            <Pressable
+              style={styles.secondaryButton}
+              onPress={calculateSelectedFood}
+              disabled={saving || loading}
+            >
+              <Text style={styles.secondaryButtonText}>
+                Recalculate portion
+              </Text>
+            </Pressable>
+          </View>
+        </>
       )}
 
       <Pressable
-        style={styles.backButton}
+        style={styles.cancelButton}
         onPress={() => router.back()}
+        disabled={saving}
       >
-        <Text style={styles.backText}>
-          Cancel
-        </Text>
+        <ArrowLeft size={16} color={C.muted} />
+        <Text style={styles.cancelText}>Back to dashboard</Text>
       </Pressable>
+
+      <View style={styles.footer}>
+        <View style={styles.footerDot} />
+        <Text style={styles.footerText}>
+          SMALL STEPS. CONSISTENT PROGRESS.
+        </Text>
+      </View>
     </ScrollView>
   );
 }
@@ -425,202 +614,447 @@ function Macro({
   label,
   value,
   suffix,
+  icon,
 }: {
   label: string;
   value: number | null;
   suffix: string;
+  icon: React.ReactNode;
 }) {
   return (
-    <View style={styles.macro}>
-      <Text style={styles.macroLabel}>
-        {label}
-      </Text>
-
+    <View style={styles.macroCard}>
+      <View style={styles.macroHeader}>
+        {icon}
+        <Text style={styles.macroLabel}>{label}</Text>
+      </View>
       <Text style={styles.macroValue}>
-        {value === null
-          ? '—'
-          : `${value}${suffix}`}
+        {value === null ? '—' : `${Number(value.toFixed(1))} ${suffix}`}
       </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 24,
-    paddingTop: 50,
-    paddingBottom: 40,
-    gap: 16,
-  },
-
-  title: {
-    fontSize: 32,
-    fontWeight: '700',
-  },
-
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    lineHeight: 22,
-  },
-
-  searchRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-
-  input: {
+  screen: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    backgroundColor: '#fff',
+    backgroundColor: C.bg,
   },
-
-  quantityInput: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    backgroundColor: '#fff',
+  container: {
+    paddingHorizontal: 20,
+    paddingTop: 54,
+    paddingBottom: 32,
+    gap: 22,
   },
-
-  searchButton: {
-    backgroundColor: '#111',
-    borderRadius: 10,
-    paddingHorizontal: 18,
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 13,
+  },
+  iconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 80,
+  },
+  headerTitleWrap: {
+    flex: 1,
+    gap: 3,
+  },
+  headerEyebrow: {
+    fontSize: 10,
+    color: C.accent,
+    fontWeight: '800',
+    letterSpacing: 2,
+  },
+  headerTitle: {
+    fontSize: 23,
+    fontWeight: '800',
+    color: C.text,
+  },
+  headerIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    backgroundColor: '#242D1D',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-
-  calculateButton: {
-    backgroundColor: '#111',
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-
-  confirmButton: {
-    backgroundColor: '#16803c',
-    borderRadius: 10,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-
-  disabledButton: {
-    opacity: 0.5,
-  },
-
-  buttonText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 15,
-  },
-
-  results: {
+  intro: {
     gap: 8,
+    marginTop: 2,
   },
-
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+  title: {
+    color: C.text,
+    fontSize: 31,
+    fontWeight: '800',
+    letterSpacing: -0.8,
   },
-
-  foodItem: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 10,
-    padding: 14,
-    backgroundColor: '#fff',
+  accentText: {
+    color: C.accent,
   },
-
-  foodName: {
-    fontSize: 16,
-    fontWeight: '600',
+  subtitle: {
+    color: C.muted,
+    fontSize: 14,
+    lineHeight: 21,
   },
-
-  source: {
-    marginTop: 4,
-    fontSize: 12,
-    color: '#777',
+  sectionHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
-
-  selectedSection: {
-    gap: 10,
-    borderWidth: 1,
-    borderColor: '#111',
+  stepBadge: {
+    width: 42,
+    height: 42,
     borderRadius: 14,
-    padding: 16,
-    backgroundColor: '#fff',
+    backgroundColor: '#242D1D',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-
-  selectedFoodCard: {
+  stepNumber: {
+    fontSize: 13,
+    color: C.accent,
+    fontWeight: '800',
+  },
+  sectionHeadingText: {
+    flex: 1,
+    gap: 3,
+  },
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: C.text,
+  },
+  sectionSubtitle: {
+    color: C.muted,
+    fontSize: 12,
+  },
+  searchCard: {
+    padding: 13,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.card,
+    gap: 12,
+  },
+  searchInputWrap: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 13,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.bg,
+  },
+  searchInput: {
+    flex: 1,
+    color: C.text,
+    fontSize: 15,
+    paddingVertical: 12,
+  },
+  primaryButton: {
+    minHeight: 51,
+    flexDirection: 'row',
+    gap: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    backgroundColor: C.accent,
+  },
+  primaryButtonText: {
+    color: C.bg,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  disabledButton: {
+    opacity: 0.55,
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 8,
+  },
+  mutedText: {
+    color: C.muted,
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  resultsSection: {
+    gap: 10,
+  },
+  resultsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
+  resultCount: {
+    color: C.muted,
+    fontSize: 12,
+  },
+  foodResult: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 13,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.card,
+  },
+  foodResultIcon: {
+    width: 43,
+    height: 43,
+    borderRadius: 13,
+    backgroundColor: '#242D1D',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  foodResultInfo: {
+    flex: 1,
     gap: 4,
   },
-
-  selectedName: {
-    fontSize: 21,
-    fontWeight: '700',
-  },
-
-  selectedHint: {
-    fontSize: 13,
-    color: '#666',
-  },
-
-  preview: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 14,
-    padding: 16,
-    gap: 12,
-    backgroundColor: '#fafafa',
-  },
-
-  previewFood: {
-    fontSize: 18,
+  foodName: {
+    color: C.text,
+    fontSize: 14,
     fontWeight: '600',
+    lineHeight: 20,
   },
-
-  quantityText: {
-    color: '#666',
+  source: {
+    color: C.muted,
+    fontSize: 11,
   },
-
-  macroRow: {
+  emptyCard: {
+    alignItems: 'center',
+    padding: 24,
+    borderRadius: 18,
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
     gap: 10,
   },
-
-  macro: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-
-  macroLabel: {
-    color: '#666',
-  },
-
-  macroValue: {
+  emptyTitle: {
+    color: C.text,
+    fontSize: 16,
     fontWeight: '700',
   },
-
-  confirmText: {
-    fontSize: 13,
-    color: '#666',
+  selectedCard: {
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.card,
+    gap: 15,
   },
-
-  backButton: {
+  selectedTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+  },
+  selectedIcon: {
+    width: 43,
+    height: 43,
+    borderRadius: 14,
+    backgroundColor: '#242D1D',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectedInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  selectedLabel: {
+    color: C.accent,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+  },
+  selectedName: {
+    color: C.text,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  smallIconButton: {
+    padding: 9,
+    borderRadius: 11,
+    backgroundColor: C.cardAlt,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: C.border,
+  },
+  inputLabel: {
+    color: C.muted,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+  },
+  quantityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 54,
+    paddingHorizontal: 13,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.bg,
+  },
+  quantityInput: {
+    flex: 1,
+    paddingVertical: 13,
+    color: C.text,
+    fontSize: 16,
+  },
+  gramBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: C.cardAlt,
+  },
+  gramText: {
+    color: C.accent,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  nutritionCard: {
+    padding: 15,
+    borderRadius: 21,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.card,
+    gap: 15,
+  },
+  caloriePanel: {
+    padding: 17,
+    borderRadius: 17,
+    backgroundColor: '#222D1B',
+    gap: 8,
+  },
+  calorieIcon: {
+    width: 39,
+    height: 39,
+    borderRadius: 12,
+    backgroundColor: '#303E25',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 2,
+  },
+  calorieLabel: {
+    color: '#C4D5B0',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+  },
+  calorieValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+  },
+  calorieValue: {
+    color: C.accent,
+    fontSize: 39,
+    fontWeight: '800',
+    letterSpacing: -1,
+  },
+  calorieUnit: {
+    color: C.text,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  calorieFootnote: {
+    color: '#C4D5B0',
+    fontSize: 12,
+  },
+  macroGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  macroCard: {
+    width: '48%',
+    flexGrow: 1,
+    minHeight: 91,
+    padding: 13,
+    borderRadius: 14,
+    backgroundColor: C.cardAlt,
+    borderWidth: 1,
+    borderColor: C.border,
+    gap: 12,
+  },
+  macroHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  macroLabel: {
+    color: C.muted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  macroValue: {
+    color: C.text,
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  notice: {
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: C.cardAlt,
+  },
+  noticeText: {
+    color: C.muted,
+    fontSize: 11,
+    lineHeight: 17,
+  },
+  secondaryButton: {
     alignItems: 'center',
     paddingVertical: 10,
   },
-
-  backText: {
-    fontSize: 15,
-    color: '#666',
+  secondaryButtonText: {
+    color: C.muted,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  cancelButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 8,
+  },
+  cancelText: {
+    color: C.muted,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingTop: 4,
+  },
+  footerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: C.accent,
+  },
+  footerText: {
+    color: '#777777',
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 1.4,
   },
 });
